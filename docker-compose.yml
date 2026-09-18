@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    container_name: nearbux-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nearbux
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: nearbux
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ ke image mein data ek version-specific subdirectory mein
+      # jaata hai, isliye mount /var/lib/postgresql par hota hai — NOT
+      # /var/lib/postgresql/data. Purana path use karoge to container
+      # restart loop mein chala jaayega.
+      - nearbux_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nearbux -d nearbux"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nearbux_pgdata:

@@ -1,0 +1,11 @@
+{
+  "extends": "@nearbux/config/tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src/**/*", "prisma/**/*", "prisma.config.ts"]
+}

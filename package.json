@@ -1,0 +1,29 @@
+{
+  "name": "nearbux",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NearBux — hyperlocal multi-store delivery marketplace (web + iOS + Android)",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "packageManager": "pnpm@12.4.2",
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:generate": "pnpm --filter @nearbux/database generate",
+    "db:migrate": "pnpm --filter @nearbux/database migrate",
+    "db:deploy": "pnpm --filter @nearbux/database deploy",
+    "db:seed": "pnpm --filter @nearbux/database seed",
+    "db:reset": "pnpm --filter @nearbux/database reset",
+    "db:studio": "pnpm --filter @nearbux/database studio",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "build": "pnpm -r build",
+    "test": "pnpm -r --no-bail test",
+    "clean": "pnpm -r exec rm -rf dist node_modules .turbo && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

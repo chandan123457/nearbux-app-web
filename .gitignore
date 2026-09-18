@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+.expo/
+.turbo/
+*.tsbuildinfo
+
+# env — sirf .env.example commit hota hai
+.env
+.env.*
+!.env.example
+
+# Prisma generated client
+packages/database/generated/
+
+# logs / os
+*.log
+npm-debug.log*
+.DS_Store
+coverage/

@@ -1,0 +1,698 @@
+// ════════════════════════════════════════════════════════════════════════
+//  NearBux — hyperlocal multi-store delivery marketplace
+//
+//  Design rules jo poore schema mein consistently lagoo hain:
+//
+//  1. MONEY hamesha integer minor units (paise) mein. Field suffix `Minor`.
+//     Float/Double kabhi nahi — bill lines exactly reconcile honi chahiye.
+//  2. ORDER ek IMMUTABLE receipt hai. Product ka naam/price ya user ka address
+//     kal badal jaaye to purana bill nahi badalna chahiye — isliye snapshots.
+//  3. M:N relations hamesha EXPLICIT join model se. Implicit shortcut se baad
+//     mein metadata (redeemedAt, isPrimary) add karna migration pain hai.
+//  4. INVARIANTS database mein enforce hote hain (@@unique, CHECK, FK), sirf
+//     application code mein nahi. Application checks race karte hain.
+//  5. Enums @nearbux/types ke enums ko MIRROR karte hain. Client bundle Prisma
+//     import nahi kar sakta, isliye dono jagah define karna zaroori hai.
+// ════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+// Prisma 7: connection URL ab yahan NAHI aata. Migrate/introspect uske liye
+// prisma.config.ts dekhta hai, aur PrismaClient ko runtime par ek driver
+// adapter (@prisma/adapter-pg) diya jaata hai — dekho src/index.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────── ENUMS ───────────────────────────────
+enum AddressLabel {
+  HOME
+  WORK
+  OTHER
+}
+
+/// Tracking screen sirf pehle 4 dikhata hai; notifications OUT_FOR_DELIVERY
+/// aur DELIVERED bhi bhejte hain. Transition rules @nearbux/core mein.
+enum OrderStatus {
+  PLACED
+  ACCEPTED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethodType {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  COD
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PromotionType {
+  PERCENT_OFF
+  FLAT_OFF
+  FREE_DELIVERY
+}
+
+enum PromotionScope {
+  PLATFORM
+  STORE
+}
+
+enum NotificationType {
+  ORDER_UPDATE
+  PROMOTION
+  ACCOUNT
+  SYSTEM
+}
+
+enum CancelledBy {
+  CUSTOMER
+  STORE
+  SYSTEM
+}
+
+// ══════════════════════════════ IDENTITY ══════════════════════════════
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// E.164 format: "+919876543210". Login identity — screen [12] sirf phone
+  /// dikhata hai, isliye auth phone-OTP based hai, password nahi.
+  phone         String    @unique @db.VarChar(16)
+  phoneVerified Boolean   @default(false)
+  email         String?   @unique @db.VarChar(255)
+  fullName      String    @db.VarChar(80)
+  avatarUrl     String?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  /// Soft delete: user delete hone par bhi orders zinda rehne chahiye
+  /// (store ka revenue record, tax compliance).
+  deletedAt     DateTime? @db.Timestamptz(3)
+
+  addresses        Address[]
+  sessions         Session[]
+  devices          DeviceToken[]
+  paymentMethods   SavedPaymentMethod[]
+  carts            Cart[]
+  orders           Order[]
+  notifications    Notification[]
+  searches         SearchHistory[]
+  favoriteStores   FavoriteStore[]
+  favoriteProducts FavoriteProduct[]
+  storeReviews     StoreReview[]
+  productReviews   ProductReview[]
+  redemptions      PromotionRedemption[]
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Address {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     AddressLabel @default(HOME)
+  line1     String       @db.VarChar(120) /// "123 MG Road"
+  line2     String?      @db.VarChar(120) /// "Apt 4B"
+  landmark  String?      @db.VarChar(120)
+  city      String       @db.VarChar(60)
+  state     String       @db.VarChar(60)
+  pincode   String       @db.VarChar(6)
+  latitude  Float
+  longitude Float
+  isDefault Boolean      @default(false)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime?    @db.Timestamptz(3)
+
+  orders Order[]
+
+  @@index([userId, deletedAt])
+  @@map("addresses")
+}
+
+/// Rotating refresh tokens. PLAINTEXT token kabhi store nahi hota — sirf hash.
+/// `replacedById` reuse detection deta hai: agar koi already-rotated token
+/// dobara use kare, matlab token chori hua hai → poori chain revoke.
+model Session {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique @db.VarChar(128)
+  deviceLabel  String?   @db.VarChar(120)
+  ipAddress    String?   @db.VarChar(45)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  replacedById String?   @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Expo push tokens — order status notifications (screen [13]) ke liye
+model DeviceToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique @db.VarChar(255)
+  platform   String   @db.VarChar(16) /// ios | android | web
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+/// Screen [12] → Payment Methods.
+/// SECURITY: raw card number / CVV / UPI PIN yahan KABHI nahi aata. Sirf
+/// gateway ka reusable token aur ek display-safe hint ("rahul@upi").
+/// PCI scope isi tarah gateway ke paas rehta hai, humare paas nahi.
+model SavedPaymentMethod {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @db.Uuid
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          PaymentMethodType
+  providerToken String?           @db.VarChar(255)
+  displayLabel  String            @db.VarChar(60)
+  isDefault     Boolean           @default(false)
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  deletedAt     DateTime?         @db.Timestamptz(3)
+
+  @@index([userId, deletedAt])
+  @@map("saved_payment_methods")
+}
+
+// ══════════════════════════════ CATALOG ══════════════════════════════
+
+/// Platform-level categories: Grocery, Bakery, Pharmacy, Cafe, Hardware
+model Category {
+  id        String  @id @default(uuid()) @db.Uuid
+  name      String  @unique @db.VarChar(60)
+  slug      String  @unique @db.VarChar(60)
+  iconUrl   String?
+  sortOrder Int     @default(0)
+
+  stores StoreCategoryLink[]
+
+  @@map("categories")
+}
+
+model Store {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(120)
+  slug        String  @unique @db.VarChar(140)
+  tagline     String? @db.VarChar(120) /// "Groceries & Daily Essentials"
+  description String? /// About tab (screen [3])
+  logoUrl     String?
+  coverUrl    String?
+  phone       String  @db.VarChar(16) /// "Call Store" (screen [10])
+  addressLine String  @db.VarChar(200)
+  city        String  @db.VarChar(60)
+  pincode     String  @db.VarChar(6)
+  latitude    Float
+  longitude   Float
+
+  deliveryFeeMinor Int   @default(0)
+  minOrderMinor    Int   @default(0)
+  etaMinMinutes    Int   @default(20) /// "15-20 min" badge
+  etaMaxMinutes    Int   @default(35)
+  serviceRadiusKm  Float @default(8)
+
+  /// DENORMALISED aggregates. Home list ke har store par live AVG() chalana
+  /// N+1 aggregate ban jaata hai. Review submit ke transaction mein update
+  /// hote hain — dekho `submitReview` service.
+  ratingAvg   Decimal @default(0) @db.Decimal(2, 1) /// 4.8
+  ratingCount Int     @default(0) /// (320)
+
+  isActive            Boolean  @default(true)
+  isTemporarilyClosed Boolean  @default(false)
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+
+  categories  StoreCategoryLink[]
+  hours       StoreHours[]
+  sections    ProductCategory[]
+  products    Product[]
+  orders      Order[]
+  carts       Cart[]
+  promotions  Promotion[]
+  reviews     StoreReview[]
+  favoritedBy FavoriteStore[]
+  banners     Banner[]
+
+  @@index([isActive, isTemporarilyClosed])
+  /// Bounding-box prefilter. Asli distance sort `earthdistance` + GiST
+  /// expression index se hota hai — woh Prisma schema mein express nahi ho
+  /// sakta, isliye handwritten migration mein hai.
+  @@index([latitude, longitude])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "stores_name_trgm_idx")
+  @@map("stores")
+}
+
+/// M:N — ek store "Grocery • Organic • Fresh Produce" teeno ho sakta hai
+model StoreCategoryLink {
+  storeId    String   @db.Uuid
+  categoryId String   @db.Uuid
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  /// Store card par kaunsa tagline dikhe
+  isPrimary  Boolean  @default(false)
+
+  @@id([storeId, categoryId])
+  @@index([categoryId])
+  @@map("store_category_links")
+}
+
+/// "Open Now" / "Closed · Opens 9 AM" isse compute hota hai.
+/// Time strings store ke LOCAL time (IST) mein hain, UTC timestamps nahi —
+/// store 9 baje kholta hai chahe timezone/DST kuch bhi ho.
+model StoreHours {
+  id        String @id @default(uuid()) @db.Uuid
+  storeId   String @db.Uuid
+  store     Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  dayOfWeek Int    /// 0 = Sunday … 6 = Saturday
+  opensAt   String @db.VarChar(5) /// "09:00"
+  closesAt  String @db.VarChar(5) /// "22:00"
+
+  @@unique([storeId, dayOfWeek, opensAt])
+  @@index([storeId])
+  @@map("store_hours")
+}
+
+/// Store-scoped chips (screen [3]): Fruits & Veg, Dairy, Bakery, Pantry.
+/// Platform-level `Category` se alag hai — yeh har store ka apna menu hai.
+model ProductCategory {
+  id        String @id @default(uuid()) @db.Uuid
+  storeId   String @db.Uuid
+  store     Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String @db.VarChar(60)
+  sortOrder Int    @default(0)
+
+  products Product[]
+
+  @@unique([storeId, name])
+  @@index([storeId, sortOrder])
+  @@map("product_categories")
+}
+
+model Product {
+  id         String           @id @default(uuid()) @db.Uuid
+  storeId    String           @db.Uuid
+  store      Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId String?          @db.Uuid
+  category   ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  name        String   @db.VarChar(160) /// "Organic Hass Avocados"
+  description String?
+  unitLabel   String   @db.VarChar(60) /// "2 pcs pack", "1 Liter", "500g loaf"
+  unitDetail  String?  @db.VarChar(80) /// "approx. 350g - 400g"
+  /// Image carousel (screen [6]). Postgres text[] — alag table ki zaroorat
+  /// nahi kyunki images ka koi apna metadata nahi hai.
+  images      String[]
+  badges      String[] /// ["Organic Certified"]
+
+  priceMinor Int  /// 49900 = Rs 499.00
+  mrpMinor   Int? /// Strikethrough price; "23% OFF" isse derive hota hai
+
+  shelfLife   String? @db.VarChar(60) /// "3-5 days"
+  storageInfo String? @db.VarChar(80) /// "Room temp / Refrigerate"
+
+  stockQty    Int     @default(0)
+  isAvailable Boolean @default(true) /// "IN STOCK" badge
+
+  /// Denormalised, review submit ke transaction mein maintain hote hain
+  ratingAvg       Decimal @default(0) @db.Decimal(2, 1)
+  ratingCount     Int     @default(0) /// "184 verified reviews"
+  recommendCount  Int     @default(0) /// "98% recommended" = recommendCount/ratingCount
+  popularityScore Int     @default(0) /// "Sort by: Popularity"
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  reviews     ProductReview[]
+  favoritedBy FavoriteProduct[]
+
+  @@index([storeId, categoryId, deletedAt])
+  @@index([storeId, isAvailable])
+  @@index([storeId, popularityScore(sort: Desc)])
+  /// Fuzzy search (screen [4]). Schema mein declare karna ZAROORI hai —
+  /// warna Prisma ise drift samajhkar har migrate par drop kar dega.
+  /// pg_trgm extension init migration ke top par enable hoti hai.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  @@map("products")
+}
+
+// ═════════════════════════════ DISCOVERY ═════════════════════════════
+
+/// Screen [1] ka "SPONSORED" carousel
+model Banner {
+  id            String   @id @default(uuid()) @db.Uuid
+  title         String   @db.VarChar(120)
+  subtitle      String?  @db.VarChar(200)
+  imageUrl      String?
+  ctaLabel      String   @default("Order Now") @db.VarChar(40)
+  targetStoreId String?  @db.Uuid
+  targetStore   Store?   @relation(fields: [targetStoreId], references: [id], onDelete: SetNull)
+  isSponsored   Boolean  @default(false)
+  sortOrder     Int      @default(0)
+  startsAt      DateTime @db.Timestamptz(3)
+  endsAt        DateTime @db.Timestamptz(3)
+  isActive      Boolean  @default(true)
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("banners")
+}
+
+/// "OFFERS FOR YOU" (screen [1]) aur cart promo codes (screen [7])
+model Promotion {
+  id               String         @id @default(uuid()) @db.Uuid
+  code             String         @unique @db.VarChar(24) /// FRESH20, NEARBUX20
+  title            String         @db.VarChar(120) /// "Flat 20% OFF on Fruits"
+  description      String?        @db.VarChar(200)
+  scope            PromotionScope @default(STORE)
+  storeId          String?        @db.Uuid
+  store            Store?         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  type             PromotionType
+  /// PERCENT_OFF: percent (20) | FLAT_OFF: minor units | FREE_DELIVERY: unused
+  value            Int            @default(0)
+  maxDiscountMinor Int?
+  minOrderMinor    Int            @default(0)
+  totalUsageLimit  Int?
+  perUserLimit     Int            @default(1)
+  startsAt         DateTime       @db.Timestamptz(3)
+  endsAt           DateTime       @db.Timestamptz(3) /// "Valid till Today, 11 PM"
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(3)
+
+  redemptions PromotionRedemption[]
+  carts       Cart[]
+  orders      Order[]
+
+  @@index([isActive, startsAt, endsAt])
+  @@index([storeId, isActive])
+  @@map("promotions")
+}
+
+/// M:N — User ↔ Promotion. `perUserLimit` enforce karne ke liye zaroori.
+model PromotionRedemption {
+  id            String    @id @default(uuid()) @db.Uuid
+  promotionId   String    @db.Uuid
+  promotion     Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  userId        String    @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 1:1 with Order — ek order par ek hi promo
+  orderId       String    @unique @db.Uuid
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  discountMinor Int
+  redeemedAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([promotionId, userId])
+  @@map("promotion_redemptions")
+}
+
+/// "RECENT SEARCHES" chips (screen [2][4])
+model SearchHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query      String   @db.VarChar(80)
+  searchedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Same query dobara search par naya row nahi — upsert + timestamp bump
+  @@unique([userId, query])
+  @@index([userId, searchedAt(sort: Desc)])
+  @@map("search_history")
+}
+
+/// M:N — store card ka heart (screen [1])
+model FavoriteStore {
+  userId    String   @db.Uuid
+  storeId   String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([userId, storeId])
+  @@index([storeId])
+  @@map("favorite_stores")
+}
+
+/// M:N — product card ka heart (screen [4][5][6])
+model FavoriteProduct {
+  userId    String   @db.Uuid
+  productId String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([userId, productId])
+  @@index([productId])
+  @@map("favorite_products")
+}
+
+// ═══════════════════════════════ CART ═══════════════════════════════
+
+/// Screen [7] "Fulfilled by <ONE store>" → cart PER STORE.
+/// @@unique([userId, storeId]) is invariant ko DB level par enforce karta hai.
+/// Doosre store se add karne par pehla cart safe rehta hai (Blinkit pattern).
+model Cart {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId     String     @db.Uuid
+  store       Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  promotionId String?    @db.Uuid
+  promotion   Promotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+
+  items CartItem[]
+
+  @@unique([userId, storeId])
+  @@map("carts")
+}
+
+/// NOTE: yahan price snapshot NAHI hai — cart hamesha live price dikhata hai.
+/// Snapshot order place karte waqt liya jaata hai (OrderItem).
+model CartItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  cartId    String   @db.Uuid
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  addedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Duplicate row nahi banta — quantity badhti hai
+  @@unique([cartId, productId])
+  @@map("cart_items")
+}
+
+// ══════════════════════════════ ORDERS ══════════════════════════════
+
+model Order {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderNumber String  @unique @db.VarChar(16) /// "NB-4032"
+  userId      String  @db.Uuid
+  /// Restrict — user soft-delete hota hai, orders kabhi cascade delete nahi
+  user        User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  storeId     String  @db.Uuid
+  store       Store   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  addressId   String? @db.Uuid
+  address     Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  /// SNAPSHOTS — receipt immutable rehni chahiye. User address edit/delete
+  /// kar de ya store rename ho jaaye, purana bill nahi badalna chahiye.
+  deliveryAddressSnapshot Json
+  storeNameSnapshot       String @db.VarChar(120)
+  storePhoneSnapshot      String @db.VarChar(16)
+
+  status OrderStatus @default(PLACED)
+
+  /// BILL — screen [14] BILL SUMMARY ke saath 1:1.
+  /// Invariant: itemTotal + delivery + tax + platformFee - discount == total
+  itemTotalMinor   Int
+  deliveryFeeMinor Int    @default(0)
+  taxMinor         Int    @default(0)
+  platformFeeMinor Int    @default(0)
+  discountMinor    Int    @default(0)
+  totalMinor       Int
+  currency         String @default("INR") @db.VarChar(3)
+
+  promotionId String?    @db.Uuid
+  promotion   Promotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+
+  etaMinMinutes Int
+  etaMaxMinutes Int
+
+  /// Timeline milestones. Full audit trail OrderStatusEvent mein hai; yeh
+  /// columns list queries ko fast rakhne ke liye denormalised hain.
+  placedAt         DateTime  @default(now()) @db.Timestamptz(3)
+  acceptedAt       DateTime? @db.Timestamptz(3)
+  preparingAt      DateTime? @db.Timestamptz(3)
+  readyAt          DateTime? @db.Timestamptz(3)
+  outForDeliveryAt DateTime? @db.Timestamptz(3)
+  deliveredAt      DateTime? @db.Timestamptz(3)
+  cancelledAt      DateTime? @db.Timestamptz(3)
+
+  cancelledBy  CancelledBy?
+  cancelReason String?      @db.VarChar(200)
+
+  /// Delivery partner ("Ramesh" — screen [13] notification). Abhi nullable
+  /// reference; full model tab jab delivery-partner app scope mein aaye.
+  deliveryPartnerId String? @db.Uuid
+
+  /// Double-tap / network retry par duplicate order + double charge rokta hai.
+  /// Client har checkout attempt par ek UUID banata hai; retry par wahi bhejta
+  /// hai. Duplicate key aane par server existing order return karta hai.
+  idempotencyKey String @unique @db.VarChar(64)
+
+  items      OrderItem[]
+  events     OrderStatusEvent[]
+  payment    Payment?
+  review     StoreReview?
+  redemption PromotionRedemption?
+
+  @@index([userId, placedAt(sort: Desc)]) /// My Orders (screen [11])
+  @@index([userId, status]) /// filter tabs
+  @@index([storeId, status, placedAt]) /// merchant dashboard (future)
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// SetNull — product catalog se hat sakta hai, purana order item rehta hai
+  productId String?  @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  /// SNAPSHOTS — kal product ka naam ya price badle to yeh bill na badle
+  nameSnapshot  String  @db.VarChar(160)
+  unitSnapshot  String  @db.VarChar(60)
+  imageSnapshot String?
+
+  unitPriceMinor Int
+  quantity       Int
+  /// Invariant: lineTotalMinor == unitPriceMinor * quantity
+  lineTotalMinor Int
+
+  productReview ProductReview?
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/// Screen [10] ka tracking timeline. Har step ek row — Order ka status column
+/// overwrite hota hai, lekin history yahan poori rehti hai (audit + support).
+model OrderStatusEvent {
+  id         String      @id @default(uuid()) @db.Uuid
+  orderId    String      @db.Uuid
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status     OrderStatus
+  note       String?     @db.VarChar(120) /// "Estimated 10 mins"
+  occurredAt DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@index([orderId, occurredAt])
+  @@map("order_status_events")
+}
+
+/// 1:1 with Order. Refund alag row nahi banata — isi record ka status badalta
+/// hai, taaki "ek order = ek payment truth" bana rahe.
+model Payment {
+  id            String            @id @default(uuid()) @db.Uuid
+  orderId       String            @unique @db.Uuid
+  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method        PaymentMethodType
+  status        PaymentStatus     @default(PENDING)
+  amountMinor   Int
+  provider      String?           @db.VarChar(40) /// "razorpay"
+  /// Gateway ka payment id. Unique isliye ki webhook retries idempotent rahein.
+  providerRefId String?           @unique @db.VarChar(120)
+  displayLabel  String?           @db.VarChar(60) /// "UPI (Google Pay)"
+  failureReason String?           @db.VarChar(200)
+  paidAt        DateTime?         @db.Timestamptz(3)
+  refundedAt    DateTime?         @db.Timestamptz(3)
+  refundMinor   Int?
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([status])
+  @@map("payments")
+}
+
+// ═════════════════════════════ FEEDBACK ═════════════════════════════
+
+/// 1:1 with Order — yahi "verified review" ki guarantee hai. Bina delivered
+/// order ke koi review nahi likh sakta.
+model StoreReview {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @unique @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String   @db.Uuid
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  rating    Int      /// 1-5, CHECK constraint migration SQL mein
+  comment   String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([storeId, createdAt(sort: Desc)])
+  @@map("store_reviews")
+}
+
+/// Screen [6]: "184 verified reviews · 98% recommended".
+/// orderItemId unique — matlab jo item actually khareeda hai wahi review ho.
+model ProductReview {
+  id            String    @id @default(uuid()) @db.Uuid
+  orderItemId   String    @unique @db.Uuid
+  orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  userId        String    @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId     String    @db.Uuid
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rating        Int
+  isRecommended Boolean
+  comment       String?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([productId, createdAt(sort: Desc)])
+  @@map("product_reviews")
+}
+
+// ═══════════════════════════ NOTIFICATIONS ═══════════════════════════
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String           @db.VarChar(160)
+  body      String           @db.VarChar(400)
+  deepLink  String?          @db.VarChar(200) /// "nearbux://orders/NB-4032"
+  orderId   String?          @db.Uuid
+  readAt    DateTime?        @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, createdAt(sort: Desc)]) /// feed
+  @@index([userId, readAt]) /// unread badge count
+  @@map("notifications")
+}
