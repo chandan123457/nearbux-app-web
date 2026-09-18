@@ -5,6 +5,9 @@
     "outDir": "./dist",
     "module": "Preserve",
     "moduleResolution": "Bundler",
+    // Workspace packages ko source se resolve karo, compiled dist se nahi —
+    // warna typecheck pehle se bane hue dist par depend karta hai
+    "customConditions": ["development"],
     "verbatimModuleSyntax": false,
     "noEmit": false,
     // Yeh ek APPLICATION hai, library nahi — koi iske types import nahi karta.

@@ -17,6 +17,12 @@ allowBuilds:
   esbuild: true
   prisma: true
 
+minimumReleaseAgeExclude:
+  - '@expo/metro-runtime@57.0.16'
+  - '@expo/ui@57.0.19'
+  - expo-constants@57.0.19
+  - expo-router@57.0.22
+
 nodeLinker: hoisted
 
 # pnpm 10+ default se postinstall scripts block karta hai. Prisma ko apne

@@ -3,8 +3,9 @@
 Hyperlocal multi-store delivery marketplace — ek shared TypeScript codebase se
 **web + Android + iOS**, plus ek Node.js backend.
 
-> **Status:** Phase 0 (foundation), 1 (data model), 2 (backend auth API) aur
-> 3 (UI kit + API client) complete. `apps/mobile` Phase 4 hai.
+> **Status:** Phase 0-4 complete. App teeno platforms par build hoti hai
+> (web + iOS + Android) ek hi codebase se, phone-OTP auth ke saath.
+> Phase 5 = stores / cart / orders.
 
 ## Requirements
 
@@ -42,11 +43,16 @@ par dono same rehte hain.
 Verify:
 
 ```bash
-pnpm typecheck        # saare packages
+pnpm typecheck        # saare workspaces
 pnpm test             # unit + integration (local Postgres chahiye)
+
 pnpm dev              # API on http://localhost:3000
-pnpm db:studio        # data browse karo
+pnpm dev:web          # app browser mein
+pnpm dev:ios          # iOS simulator (macOS)
+pnpm dev:android      # Android emulator
 ```
+
+App ko API chahiye — dono terminals chalao.
 
 Seeded login: **+91 98765 43210** (Rahul Sharma)
 
@@ -54,7 +60,8 @@ Seeded login: **+91 98765 43210** (Rahul Sharma)
 
 ```
 apps/
-└── api/         Fastify backend — auth, health, profile
+├── api/         Fastify backend — auth, health, profile
+└── mobile/      Expo app — web + iOS + Android, ek codebase
 packages/
 ├── config/      shared tsconfig / prettier / editorconfig
 ├── types/       domain DTOs + enums — har screen ka API contract
@@ -181,6 +188,60 @@ lagbhag namumkin.
 Input types `@nearbux/validation` ke Zod schemas se infer hote hain — wahi
 schemas jo server request validate karta hai. Schema badla to dono taraf
 compile error.
+
+## App (apps/mobile)
+
+Expo SDK 57 · React Native 0.86 · React 19.2 · Expo Router.
+**Ek codebase, teen platforms** — kuch bhi duplicate nahi.
+
+```
+app/                   Expo Router: file path = route = URL
+├── _layout.tsx        providers + auth gate (ek jagah, har screen ke liye)
+├── +html.tsx          web-only HTML shell
+├── (auth)/            sign-in → verify
+└── (app)/             tabs: index · cart · orders · profile
+src/lib/
+├── token-storage.native.ts   Keychain / Android Keystore
+├── token-storage.web.ts      localStorage
+├── token-storage.ts          memory (static-render fallback)
+├── api.ts                    client wiring + LAN IP resolution
+└── session.tsx               session state
+```
+
+### Platform-specific code
+
+Sirf **ek** cheez platform ke hisaab se badalti hai: token storage. Metro
+`.native.ts` / `.web.ts` apne aap chunta hai, caller ko pata bhi nahi chalta.
+Verified: web bundle mein `localStorage` hai aur SecureStore nahi; iOS bundle
+mein SecureStore hai.
+
+Baaki har jagah — screens, components, business logic, API client — ek hi
+file teeno platforms par chalti hai. Screens mein ek bhi `Platform.OS` check
+nahi.
+
+### Metro ka `.js` → `.ts` shim
+
+`metro.config.js` mein ek resolver shim hai. Workspace packages apne internal
+imports mein explicit `.js` likhte hain (Node ka ESM loader demand karta hai
+jab apps/api compiled dist chalata hai), lekin Metro un packages ka
+TypeScript **source** padhta hai jahan woh file `.ts` hai. Bina shim ke Metro
+ko compiled `dist` use karna padta — matlab `packages/ui` mein har chhote
+change ke baad `pnpm build`.
+
+### Web build
+
+`pnpm --filter @nearbux/mobile run export:web` → `dist/`, static HTML har
+route ke liye.
+
+Do cheezein jaan lo:
+
+1. **Bundle ~3.8 MB** hai. Yeh react-native-web ki keemat hai, wahi jo
+   architecture mein flag ki thi. Equivalent React DOM app kaafi halka hota.
+2. **Pre-rendered HTML loading spinner hai**, asli content nahi. App poori
+   tarah login ke peeche hai, to static render ke waqt session check pending
+   rehta hai. Auth-gated screens ke liye yeh sahi hai — unhe index hona bhi
+   nahi chahiye. Agar kabhi public SEO pages chahiye, woh alag Next.js app
+   banega.
 
 ## Deploy (Render)
 

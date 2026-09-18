@@ -1,0 +1,18 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "moduleResolution": "Bundler",
+    // TypeScript ko wahi source resolve karao jo Metro karta hai.
+    // Iske bina tsc workspace packages ke compiled dist/ par jaata hai, aur
+    // typecheck pehle `pnpm build` chalane par depend karne lagta hai — aur
+    // stale dist ke against check karta hai, jo asli galtiyan chhupa deta hai.
+    "customConditions": ["development"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules", "dist", ".expo"]
+}

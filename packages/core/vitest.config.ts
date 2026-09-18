@@ -4,5 +4,8 @@ export default defineConfig({
   // Workspace packages ko unke TypeScript source se resolve karo, compiled
   // dist se nahi — warna tests stale build ke against chalte hain.
   resolve: { conditions: ['development'] },
-  test: {},
+  test: {
+    // dist/ mein compiled tests hote hain — unhe dobara chalane ka koi matlab
+    // nahi, aur stale dist src ke red hone par bhi green dikha sakta hai.
+    exclude: ['**/node_modules/**', '**/dist/**'],},
 });
