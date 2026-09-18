@@ -3,8 +3,8 @@
 Hyperlocal multi-store delivery marketplace — ek shared TypeScript codebase se
 **web + Android + iOS**, plus ek Node.js backend.
 
-> **Status:** Phase 0 (foundation), Phase 1 (data model) aur Phase 2 (backend
-> auth API) complete. `apps/mobile` Phase 4 hai.
+> **Status:** Phase 0 (foundation), 1 (data model), 2 (backend auth API) aur
+> 3 (UI kit + API client) complete. `apps/mobile` Phase 4 hai.
 
 ## Requirements
 
@@ -60,8 +60,8 @@ packages/
 ├── types/       domain DTOs + enums — har screen ka API contract
 ├── validation/  Zod schemas — client form AND server request, ek hi definition
 ├── core/        pure business logic: bill, money, geo, store hours, order FSM
-├── api-client/  platform boundary (TokenStorage) + typed fetch (Phase 3)
-├── ui/          design tokens screens se extract kiye hue (Phase 3: components)
+├── api-client/  typed fetch client + refresh rotation
+├── ui/          RN components + design tokens (screens se extract)
 └── database/    Prisma schema, migrations, seed, client singleton
 ```
 
@@ -144,6 +144,43 @@ Do migrations:
 - `*_search_geo_and_check_constraints` — handwritten: `earthdistance` GiST geo
   index, partial indexes, aur saare CHECK constraints. Yeh sab Prisma schema se
   express nahi ho sakta.
+
+## UI kit
+
+`@nearbux/ui` — ek codebase, teeno platforms. React Native primitives, jo
+react-native-web ke through browser mein DOM ban jaate hain.
+
+Primitives: `Button` `Card` `Badge` `Chip` `Avatar` `SearchBar` `ListRow`
+`RatingPill` `FavoriteHeart` `QuantityStepper` `ImagePlaceholder`
+`SectionHeader` `EmptyState`
+
+Composites: `StoreCard` `ProductCard` `CartItemRow` `BillSummary`
+`BottomTabBar` `Screen`
+
+**Web layout:** `Screen` content ko 480px column mein center karta hai. Saare
+designs mobile ke liye bane hain; desktop par unhe stretch karne se layout
+toot jaata hai (10 inch chaudi cart rows). Native par `maxWidth` ka koi asar
+nahi — isliye ek hi component teeno platforms par chalta hai, zero
+`Platform.OS` checks screens mein.
+
+`useBreakpoint()` — `useWindowDimensions` native aur web par same kaam karta
+hai, isliye phone-vs-tablet aur mobile-vs-desktop dono ek hi hook se.
+
+## API client
+
+`@nearbux/api-client` — typed fetch, auth header injection, error
+normalization, aur refresh rotation.
+
+**Sabse important hissa:** concurrent 401s par sirf **ek** refresh jaata hai.
+App load par 3-4 requests ek saath chalti hain; token expire ho to sab 401
+dengi. Bina dedup ke sab apna refresh bhejengi — aur server tokens rotate
+karta hai, to pehli ke baad baaki "reuse" dikhengi aur server saare sessions
+revoke kar dega. User bina kisi galti ke logout, aur bug reproduce karna
+lagbhag namumkin.
+
+Input types `@nearbux/validation` ke Zod schemas se infer hote hain — wahi
+schemas jo server request validate karta hai. Schema badla to dono taraf
+compile error.
 
 ## Deploy (Render)
 

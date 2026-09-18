@@ -2,7 +2,11 @@
   "extends": "@nearbux/config/tsconfig.lib.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM"],
+    "types": ["react"],
+    "moduleResolution": "Bundler"
   },
   "include": ["src/**/*"]
 }
