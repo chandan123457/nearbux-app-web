@@ -11,11 +11,11 @@
   "scripts": {
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
-    "deploy": "prisma migrate deploy",
     "reset": "prisma migrate reset --force",
     "seed": "prisma db seed",
     "studio": "prisma studio",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@nearbux/core": "workspace:*",
