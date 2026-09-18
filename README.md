@@ -17,13 +17,27 @@ Hyperlocal multi-store delivery marketplace — ek shared TypeScript codebase se
 ## Quick start
 
 ```bash
-cp .env.example .env
+cp .env.example .env    # phir DATABASE_URL + DIRECT_DATABASE_URL bharo
 pnpm install
-pnpm db:up          # PostgreSQL 18.6 container
-pnpm db:deploy      # migrations apply
-pnpm db:generate    # Prisma Client
-pnpm db:seed        # screens wala demo data
+pnpm db:deploy          # migrations apply
+pnpm db:generate        # Prisma Client
+pnpm db:seed            # screens wala demo data
 ```
+
+Local Postgres chahiye (offline kaam / tests) to `pnpm db:up` se Docker par
+18.6 chalu ho jaata hai; phir dono URLs ko localhost par point kar do.
+
+### Do database URLs kyun
+
+| Variable | Endpoint | Kaun use karta hai |
+|---|---|---|
+| `DATABASE_URL` | **pooled** | App runtime (`packages/database/src/index.ts`) |
+| `DIRECT_DATABASE_URL` | **direct** (`-pooler` ke bina) | Prisma Migrate + seed |
+
+Migrations Postgres advisory locks leti hain. PgBouncer transaction mode
+(Neon ka pooler) mein har statement alag backend connection par ja sakta hai,
+isliye lock release hi nahi hota aur migration hang ho jaati hai. Local Docker
+par dono same rehte hain.
 
 Verify:
 
@@ -81,6 +95,10 @@ pnpm db:deploy    # prod/CI: sirf pending apply karo (generate/reset kabhi nahi)
 pnpm db:reset     # sab data wipe + re-seed (sirf local)
 ```
 
+> **`pnpm db:seed` DESTRUCTIVE hai.** Woh saari application tables TRUNCATE
+> karta hai. `NODE_ENV=production` par refuse karta hai, aur chalne se pehle
+> target host print karta hai — run karne se pehle woh line padh lo.
+
 Migrations commit hoti hain aur apply hone ke baad **immutable** hain. Applied
 migration edit mat karna — naya likho.
 
@@ -99,3 +117,6 @@ Do migrations:
   `/var/lib/postgresql/data` par nahi. Purana path = restart loop.
 - **Expo monorepo (Phase 4):** `.npmrc` mein `node-linker=hoisted` chahiye —
   Metro pnpm ke strict symlinks reliably resolve nahi karta.
+- **Serverless Postgres cold starts:** Neon idle compute suspend kar deta hai.
+  Seed connect par retry karta hai aur dono clients ka connection timeout 30s
+  hai. Pehli request ke baad latency normal ho jaati hai.

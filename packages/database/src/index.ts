@@ -19,6 +19,7 @@ export * from '../generated/client/index.js';
  * Prisma kabhi nahi jaana chahiye, warna DB schema aur query logic user ke
  * device par ship ho jaayega.
  */
+// POOLED endpoint. Migrations DIRECT use karti hain — dekho prisma.config.ts
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
@@ -30,8 +31,15 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 function createClient(): PrismaClient {
   const adapter = new PrismaPg({
     connectionString,
-    // Ek instance itne se zyada Postgres connections nahi kholega
+    // Ek instance itne se zyada Postgres connections nahi kholega.
+    // Neon pooler ke peeche yeh chhota rakho (5) — API instances horizontally
+    // scale karte hain aur har ek apna pool kholta hai.
     max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+    // Serverless Postgres (Neon) idle hone par compute suspend kar deta hai,
+    // aur pehli query usse jagati hai. Default connection timeout us cold
+    // start ke liye kam padta hai.
+    connectionTimeoutMillis: 30_000,
+    idleTimeoutMillis: 30_000,
   });
 
   return new PrismaClient({

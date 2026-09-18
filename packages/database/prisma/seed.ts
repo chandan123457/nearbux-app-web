@@ -14,9 +14,49 @@ import { config as loadEnv } from 'dotenv';
 
 loadEnv({ path: path.resolve(import.meta.dirname, '../../../.env'), quiet: true });
 
+import { PrismaPg } from '@prisma/adapter-pg';
 import { computeBill, formatOrderNumber } from '@nearbux/core';
-import { prisma } from '../src/index.js';
+import { PrismaClient } from '../generated/client/index.js';
 import { BENGALURU, CATEGORIES, STORES } from './seed/data.js';
+
+/**
+ * Seed apna DEDICATED client banata hai, shared runtime singleton nahi use karta:
+ *
+ *  - DIRECT endpoint, pooled nahi. Yeh ek short-lived script hai; connection
+ *    pooling ka koi fayda nahi, aur PgBouncer ki quirks se bach jaate hain.
+ *  - Lambe timeouts. Neon ka compute idle hone par suspend ho jaata hai, aur
+ *    pehli query usse jagati hai — woh kai seconds le sakti hai.
+ */
+const seedConnectionString =
+  process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+
+if (!seedConnectionString) {
+  throw new Error('DIRECT_DATABASE_URL (ya DATABASE_URL) set nahi hai — .env.example dekho');
+}
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({
+    connectionString: seedConnectionString,
+    max: 1,
+    connectionTimeoutMillis: 30_000,
+    idleTimeoutMillis: 60_000,
+  }),
+  log: ['warn', 'error'],
+});
+
+/** Neon ka compute suspend ho sakta hai — pehli query usse jagati hai. */
+async function waitForDatabase(attempts = 5): Promise<void> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return;
+    } catch (err) {
+      if (i === attempts) throw err;
+      console.log(`   database abhi ready nahi (attempt ${i}/${attempts}), retrying…`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
 
 /** Ek reference point se km offset ko lat/lng mein badalta hai */
 function offsetCoords(northKm: number, eastKm: number) {
@@ -39,40 +79,51 @@ function daysAgoAt(days: number, hour: number, minute: number): Date {
   return d;
 }
 
+/**
+ * DESTRUCTIVE — sab application data wipe karta hai.
+ *
+ * Production ke against chalne se refuse karta hai. Ab jab DATABASE_URL ek
+ * cloud database ko point kar sakta hai, ek galat `pnpm db:seed` ka matlab
+ * real data ka loss ho sakta hai. Guard sasta hai, mistake mehngi.
+ */
+function assertNotProduction() {
+  const url = process.env.DATABASE_URL ?? '';
+  const isProd = process.env.NODE_ENV === 'production';
+  const forced = process.env.ALLOW_DESTRUCTIVE_SEED === 'true';
+
+  if (isProd && !forced) {
+    throw new Error(
+      'Refusing to seed: NODE_ENV=production. Yeh sab data delete kar deta hai.\n' +
+        'Agar sach mein yahi chahiye to ALLOW_DESTRUCTIVE_SEED=true set karo.',
+    );
+  }
+  const host = url.match(/@([^/:?]+)/)?.[1] ?? 'unknown host';
+  console.log(`   target: ${host}`);
+}
+
 async function clean() {
-  // Order matters — FK dependents pehle. Ek transaction taaki partial
-  // wipe se database kabhi inconsistent state mein na rahe.
-  await prisma.$transaction([
-    prisma.productReview.deleteMany(),
-    prisma.storeReview.deleteMany(),
-    prisma.notification.deleteMany(),
-    prisma.orderStatusEvent.deleteMany(),
-    prisma.payment.deleteMany(),
-    prisma.promotionRedemption.deleteMany(),
-    prisma.orderItem.deleteMany(),
-    prisma.order.deleteMany(),
-    prisma.cartItem.deleteMany(),
-    prisma.cart.deleteMany(),
-    prisma.favoriteProduct.deleteMany(),
-    prisma.favoriteStore.deleteMany(),
-    prisma.searchHistory.deleteMany(),
-    prisma.banner.deleteMany(),
-    prisma.promotion.deleteMany(),
-    prisma.product.deleteMany(),
-    prisma.productCategory.deleteMany(),
-    prisma.storeHours.deleteMany(),
-    prisma.storeCategoryLink.deleteMany(),
-    prisma.store.deleteMany(),
-    prisma.category.deleteMany(),
-    prisma.savedPaymentMethod.deleteMany(),
-    prisma.deviceToken.deleteMany(),
-    prisma.session.deleteMany(),
-    prisma.address.deleteMany(),
-    prisma.user.deleteMany(),
-  ]);
+  // Ek TRUNCATE, ek round trip.
+  //
+  // Pehle yahan 26 alag deleteMany ek $transaction mein the. Local Postgres par
+  // theek tha, lekin remote database (Neon) par har statement ek network round
+  // trip hai — transaction start hone se pehle hi timeout ho jaata tha (P2028).
+  //
+  // Table list schema se query hoti hai, hardcoded nahi, taaki naye models
+  // apne aap cover ho jaayein. CASCADE FK order sambhal leta hai.
+  const tables = await prisma.$queryRaw<Array<{ tablename: string }>>`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename NOT LIKE '\_prisma%'
+  `;
+  if (tables.length === 0) return;
+
+  const list = tables.map((t) => `"public"."${t.tablename}"`).join(', ');
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
 }
 
 async function main() {
+  assertNotProduction();
+  console.log('🔌 Connecting…');
+  await waitForDatabase();
   console.log('🧹 Cleaning existing data…');
   await clean();
 
@@ -622,7 +673,8 @@ async function createSimpleDeliveredOrder(input: SimpleOrderInput) {
   if (input.withReview) {
     // Review sirf delivered order se bandh sakta hai — yahi "verified" ki
     // guarantee hai. Rating aggregates isi transaction mein update hote hain.
-    await prisma.$transaction([
+    await prisma.$transaction(
+      [
       prisma.storeReview.create({
         data: {
           orderId: order.id,
@@ -637,7 +689,10 @@ async function createSimpleDeliveredOrder(input: SimpleOrderInput) {
         where: { id: storeId },
         data: { ratingCount: { increment: 1 } },
       }),
-    ]);
+      ],
+      // Remote database par default 2s maxWait / 5s timeout tight hai
+      { maxWait: 15_000, timeout: 30_000 },
+    );
   }
 }
 
@@ -711,13 +766,14 @@ async function seedNotifications(userId: string, order4032Id: string) {
 }
 
 async function summarise() {
-  const [stores, products, orders, notifications, cartItems] = await Promise.all([
-    prisma.store.count(),
-    prisma.product.count(),
-    prisma.order.count(),
-    prisma.notification.count(),
-    prisma.cartItem.count(),
-  ]);
+  // Sequential, Promise.all nahi. Remote database par ek chhote pool se 5
+  // parallel queries connection acquisition timeout de deti hain — aur yeh
+  // sirf ek summary print hai, iske liye concurrency ka koi fayda nahi.
+  const stores = await prisma.store.count();
+  const products = await prisma.product.count();
+  const orders = await prisma.order.count();
+  const notifications = await prisma.notification.count();
+  const cartItems = await prisma.cartItem.count();
   console.log(`   stores=${stores} products=${products} orders=${orders} notifications=${notifications} cartItems=${cartItems}`);
   console.log('   login: +919876543210 (Rahul Sharma)');
 }
