@@ -21,7 +21,13 @@
     "build": "pnpm --filter \"@nearbux/api...\" run build",
     "test": "pnpm -r --no-bail test",
     "clean": "pnpm -r exec rm -rf dist node_modules .turbo && rm -rf node_modules",
-    "dev": "pnpm --filter @nearbux/api run dev"
+    "dev": "pnpm --filter @nearbux/api run dev",
+    "dev:web": "pnpm --filter @nearbux/mobile run web",
+    "dev:ios": "pnpm --filter @nearbux/mobile run ios",
+    "dev:android": "pnpm --filter @nearbux/mobile run android",
+    "dev:app": "pnpm --filter @nearbux/mobile run start",
+    "build:packages": "pnpm --filter \"./packages/**\" run build",
+    "export:web": "pnpm --filter @nearbux/mobile run export:web"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

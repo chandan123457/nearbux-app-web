@@ -33,22 +33,17 @@ export const contentContainer = {
   alignSelf: 'center',
 } as const;
 
-/** Screenshots mein cards ka shadow bahut halka hai */
+/**
+ * Screenshots mein cards ka shadow bahut halka hai.
+ *
+ * `boxShadow` use karte hain, purane `shadowColor`/`shadowOffset`/`elevation`
+ * props nahi — woh React Native 0.76+ mein deprecated hain aur web par har
+ * render par warning dete hain. `boxShadow` ek hi value teeno platforms par
+ * kaam karti hai.
+ */
 export const shadow = StyleSheet.create({
-  card: {
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  floating: {
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
+  card: { boxShadow: '0px 2px 8px rgba(15, 23, 42, 0.05)' },
+  floating: { boxShadow: '0px 4px 16px rgba(15, 23, 42, 0.12)' },
 });
 
 export const text = StyleSheet.create({
