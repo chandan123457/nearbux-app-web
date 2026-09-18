@@ -3,9 +3,9 @@
 Hyperlocal multi-store delivery marketplace — ek shared TypeScript codebase se
 **web + Android + iOS**, plus ek Node.js backend.
 
-> **Status:** Phase 0-4 complete. App teeno platforms par build hoti hai
-> (web + iOS + Android) ek hi codebase se, phone-OTP auth ke saath.
-> Phase 5 = stores / cart / orders.
+> **Status:** Phase 0-5 complete. Saare 14 screens asli data ke saath chalti
+> hain — discovery, search, catalog, cart, checkout, order tracking —
+> ek codebase se web + iOS + Android par.
 
 ## Requirements
 
@@ -98,6 +98,41 @@ Base path `/v1`. Sab errors ek hi envelope mein:
 | POST | `/auth/logout-all` | ✓ | Sab devices se logout |
 | GET | `/me` | ✓ | Profile (screen [12]) |
 | PATCH | `/me` | ✓ | Naam / email update |
+| GET | `/home` | ✓ | Screen [1] — banners, offers, stores, unread — ek call |
+| GET | `/stores` | ✓ | Nearby, distance-sorted |
+| GET | `/search` | ✓ | Screen [4] — stores + products (pg_trgm) |
+| GET | `/search/recent` | ✓ | Recent search chips |
+| GET | `/stores/:slug` | ✓ | Screen [3] — detail + sections |
+| GET | `/stores/:id/products` | ✓ | Screens [3][5] — catalog |
+| GET | `/products/:id` | ✓ | Screen [6] |
+| GET/POST | `/carts`, `/cart/items` | ✓ | Screen [7] |
+| PATCH | `/carts/:storeId/items/:productId` | ✓ | Stepper (0 = remove) |
+| POST/DELETE | `/carts/:storeId/promotion` | ✓ | Promo code |
+| POST | `/orders` | ✓ | Screens [8][9] — **idempotent** |
+| GET | `/orders`, `/orders/:id` | ✓ | Screens [10][11][14] |
+| POST | `/orders/:id/cancel` | ✓ | Screen [10] |
+| GET | `/notifications` | ✓ | Screen [13] |
+| GET/POST | `/addresses` | ✓ | Saved addresses |
+| PUT/DELETE | `/favorites/{stores,products}/:id` | ✓ | Heart toggles |
+
+### Order placement
+
+Sabse important operation. Poora **ek transaction** mein, is order mein:
+
+1. **Idempotency check** — client per-checkout UUID bhejta hai; retry par wahi
+   order wapas milta hai, naya nahi. Mobile par network retry aam hai, aur
+   iske bina user do baar charge hota hai.
+2. Cart, address, store aur promo validate
+3. **Bill server par dobara compute** — client ka bheja total sirf CHECK hai,
+   price ka source nahi. Mismatch par 409 `PRICE_CHANGED`, taaki user ko wahi
+   amount charge ho jo usne dekha.
+4. **Conditional stock decrement** — `WHERE stockQty >= n`. "padho, check karo,
+   likho" karne par do parallel checkouts aakhri item dono ko bech dete hain.
+5. Order + items (**snapshots** ke saath) + timeline + payment + redemption
+6. Cart delete
+
+Notification transaction ke **baahar** bhejta hai — woh fail ho to order fail
+nahi hona chahiye.
 
 ### Auth model
 

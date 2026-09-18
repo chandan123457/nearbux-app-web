@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@nearbux/database';
 import { loadEnv } from '../src/lib/env.js';
@@ -37,17 +38,50 @@ export async function createTestServer(
   return app;
 }
 
-/** Har test ke liye unique number, taaki tests ek doosre se na takrayein */
-let phoneCounter = 0;
+/**
+ * Har test ke liye ek unique number.
+ *
+ * Yeh RANDOM hai, counter nahi. Counter har test FILE mein 0 se shuru hota
+ * hai, to alag files ke tests same numbers use karte the — aur per-phone OTP
+ * throttle unhe ek doosre ka budget khaate dekhta tha. Failures test order
+ * par depend karne lagti thin, jo debug karna bahut mushkil hai.
+ */
 export function uniquePhone(): string {
-  phoneCounter += 1;
-  const suffix = String(700_000_0000 + phoneCounter).slice(-10);
-  return `+91${suffix.startsWith('9') ? suffix : `9${suffix.slice(1)}`}`;
+  const suffix = randomInt(100_000_000, 999_999_999);
+  return `+919${suffix}`;
 }
 
+/**
+ * Ek test user aur uska poora data hataata hai.
+ *
+ * Order matters: orders `onDelete: Restrict` use karte hain (woh cascade se
+ * kabhi delete nahi hone chahiye), isliye unhe pehle explicitly hatana padta
+ * hai warna user delete fail ho jaata hai.
+ */
 export async function cleanupPhone(phone: string): Promise<void> {
   const user = await prisma.user.findFirst({ where: { phone } });
   if (user) {
+    const orderIds = (
+      await prisma.order.findMany({ where: { userId: user.id }, select: { id: true } })
+    ).map((o) => o.id);
+
+    if (orderIds.length > 0) {
+      await prisma.promotionRedemption.deleteMany({ where: { orderId: { in: orderIds } } });
+      await prisma.storeReview.deleteMany({ where: { orderId: { in: orderIds } } });
+      await prisma.productReview.deleteMany({ where: { userId: user.id } });
+      await prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } });
+      await prisma.orderStatusEvent.deleteMany({ where: { orderId: { in: orderIds } } });
+      await prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } });
+      await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
+    }
+
+    await prisma.notification.deleteMany({ where: { userId: user.id } });
+    await prisma.cart.deleteMany({ where: { userId: user.id } });
+    await prisma.favoriteStore.deleteMany({ where: { userId: user.id } });
+    await prisma.favoriteProduct.deleteMany({ where: { userId: user.id } });
+    await prisma.searchHistory.deleteMany({ where: { userId: user.id } });
+    await prisma.address.deleteMany({ where: { userId: user.id } });
+    await prisma.savedPaymentMethod.deleteMany({ where: { userId: user.id } });
     await prisma.session.deleteMany({ where: { userId: user.id } });
     await prisma.deviceToken.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });

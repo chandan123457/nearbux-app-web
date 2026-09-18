@@ -1,6 +1,27 @@
-import type { UserProfile } from '@nearbux/types';
 import type {
+  Address,
+  Cart,
+  HomeFeed,
+  NotificationFeed,
+  OrderDetail,
+  OrderSummary,
+  Paginated,
+  ProductDetail,
+  ProductSummary,
+  SearchResults,
+  StoreDetail,
+  StoreSummary,
+  UserProfile,
+} from '@nearbux/types';
+import type {
+  AddressInput,
+  ApplyPromotionInput,
+  CancelOrderInput,
+  NearbyQuery,
+  OrderListQuery,
+  PlaceOrderInput,
   RequestOtpInput,
+  StoreProductsQuery,
   UpdateProfileInput,
   VerifyOtpInput,
 } from '@nearbux/validation';
@@ -18,8 +39,6 @@ export interface VerifyOtpResult {
  * schemas jo server request validate karne ke liye use karta hai. Client aur
  * server kabhi diverge nahi kar sakte: schema badla, dono taraf compile error.
  *
- * Abhi sirf woh endpoints hain jo server par ASAL mein exist karte hain
- * (Phase 2). Stores/cart/orders Phase 5 mein aayenge.
  */
 export function createEndpoints(client: ApiClient) {
   return {
@@ -72,6 +91,138 @@ export function createEndpoints(client: ApiClient) {
       },
       update(input: UpdateProfileInput) {
         return client.request<UserProfile>('/v1/me', { method: 'PATCH', body: input });
+      },
+    },
+
+    addresses: {
+      list() {
+        return client.request<Address[]>('/v1/addresses');
+      },
+      create(input: AddressInput) {
+        return client.request<Address>('/v1/addresses', { method: 'POST', body: input });
+      },
+      update(id: string, input: Partial<AddressInput>) {
+        return client.request<Address>(`/v1/addresses/${id}`, { method: 'PATCH', body: input });
+      },
+      remove(id: string) {
+        return client.request<void>(`/v1/addresses/${id}`, { method: 'DELETE' });
+      },
+    },
+
+    discovery: {
+      /** Screen [1] — ek call mein banners, offers, stores, unread count */
+      home(query: NearbyQuery) {
+        return client.request<HomeFeed>('/v1/home', { query: { ...query } });
+      },
+      nearbyStores(query: NearbyQuery) {
+        return client.request<StoreSummary[]>('/v1/stores', { query: { ...query } });
+      },
+      /** Screen [4] */
+      search(query: NearbyQuery & { q: string }) {
+        return client.request<SearchResults>('/v1/search', { query: { ...query } });
+      },
+      recentSearches() {
+        return client.request<{ recentSearches: string[] }>('/v1/search/recent');
+      },
+      clearRecentSearches() {
+        return client.request<void>('/v1/search/recent', { method: 'DELETE' });
+      },
+      /** Screen [3] */
+      store(slug: string, coords?: { latitude: number; longitude: number }) {
+        return client.request<StoreDetail>(`/v1/stores/${slug}`, {
+          query: coords ? { ...coords } : undefined,
+        });
+      },
+      /** Screens [3][5] */
+      storeProducts(storeId: string, query: Partial<StoreProductsQuery> = {}) {
+        return client.request<Paginated<ProductSummary>>(`/v1/stores/${storeId}/products`, {
+          query: { ...query },
+        });
+      },
+      /** Screen [6] */
+      product(productId: string) {
+        return client.request<ProductDetail>(`/v1/products/${productId}`);
+      },
+    },
+
+    favorites: {
+      addStore(storeId: string) {
+        return client.request<void>(`/v1/favorites/stores/${storeId}`, { method: 'PUT' });
+      },
+      removeStore(storeId: string) {
+        return client.request<void>(`/v1/favorites/stores/${storeId}`, { method: 'DELETE' });
+      },
+      addProduct(productId: string) {
+        return client.request<void>(`/v1/favorites/products/${productId}`, { method: 'PUT' });
+      },
+      removeProduct(productId: string) {
+        return client.request<void>(`/v1/favorites/products/${productId}`, { method: 'DELETE' });
+      },
+    },
+
+    cart: {
+      list() {
+        return client.request<Cart[]>('/v1/carts');
+      },
+      /** Khaali cart null deta hai, 404 nahi — woh ek valid state hai */
+      get(storeId: string) {
+        return client.request<Cart | null>(`/v1/carts/${storeId}`);
+      },
+      addItem(input: { productId: string; quantity: number }) {
+        return client.request<Cart>('/v1/cart/items', { method: 'POST', body: input });
+      },
+      /** quantity 0 = remove. Aakhri item hatane par cart null ho jaata hai. */
+      setQuantity(storeId: string, productId: string, quantity: number) {
+        return client.request<Cart | null>(`/v1/carts/${storeId}/items/${productId}`, {
+          method: 'PATCH',
+          body: { quantity },
+        });
+      },
+      clear(storeId: string) {
+        return client.request<void>(`/v1/carts/${storeId}`, { method: 'DELETE' });
+      },
+      applyPromotion(storeId: string, input: ApplyPromotionInput) {
+        return client.request<Cart>(`/v1/carts/${storeId}/promotion`, {
+          method: 'POST',
+          body: input,
+        });
+      },
+      removePromotion(storeId: string) {
+        return client.request<Cart>(`/v1/carts/${storeId}/promotion`, { method: 'DELETE' });
+      },
+    },
+
+    orders: {
+      /** Screens [8][9]. idempotencyKey retry par duplicate order rokti hai. */
+      place(input: PlaceOrderInput) {
+        return client.request<OrderDetail>('/v1/orders', { method: 'POST', body: input });
+      },
+      /** Screen [11] */
+      list(query: Partial<OrderListQuery> = {}) {
+        return client.request<Paginated<OrderSummary>>('/v1/orders', { query: { ...query } });
+      },
+      /** Screens [10][14]. id UUID ya order number ("NB-4032") ho sakta hai. */
+      get(id: string) {
+        return client.request<OrderDetail>(`/v1/orders/${id}`);
+      },
+      cancel(id: string, input: CancelOrderInput) {
+        return client.request<OrderDetail>(`/v1/orders/${id}/cancel`, {
+          method: 'POST',
+          body: input,
+        });
+      },
+    },
+
+    notifications: {
+      /** Screen [13] — TODAY / EARLIER grouped */
+      feed() {
+        return client.request<NotificationFeed>('/v1/notifications');
+      },
+      markAllRead() {
+        return client.request<void>('/v1/notifications/read-all', { method: 'POST' });
+      },
+      markRead(id: string) {
+        return client.request<void>(`/v1/notifications/${id}/read`, { method: 'POST' });
       },
     },
 

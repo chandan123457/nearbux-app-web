@@ -6,9 +6,15 @@ import type { Env } from './lib/env.js';
 import prismaPlugin from './plugins/prisma.js';
 import authPlugin from './plugins/auth.js';
 import securityPlugin from './plugins/security.js';
+import addressRoutes from './modules/addresses/addresses.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
+import cartRoutes from './modules/cart/cart.routes.js';
+import favoriteRoutes from './modules/favorites/favorites.routes.js';
 import healthRoutes from './modules/health/health.routes.js';
 import meRoutes from './modules/me/me.routes.js';
+import notificationRoutes from './modules/notifications/notifications.routes.js';
+import orderRoutes from './modules/orders/orders.routes.js';
+import storeRoutes from './modules/stores/stores.routes.js';
 
 export interface BuildServerOptions {
   env: Env;
@@ -119,6 +125,12 @@ export async function buildServer({ env, db }: BuildServerOptions): Promise<Fast
     await api.register(healthRoutes);
     await api.register(authRoutes, { env });
     await api.register(meRoutes);
+    await api.register(addressRoutes);
+    await api.register(storeRoutes);
+    await api.register(cartRoutes);
+    await api.register(orderRoutes);
+    await api.register(notificationRoutes);
+    await api.register(favoriteRoutes);
   }, { prefix: '/v1' });
 
   return app;

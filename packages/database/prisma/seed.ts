@@ -284,8 +284,16 @@ async function main() {
   });
 
   console.log('🎟️  Promotions and banners…');
-  const todayAt23 = new Date();
-  todayAt23.setHours(23, 0, 0, 0);
+  // Agla 11 PM, aaj ka 11 PM nahi.
+  //
+  // Seed 11 PM ke baad chalane par "Valid till Today, 11 PM" wala offer
+  // PEHLE SE expired insert hota tha, aur promo tests raat ko fail hote the
+  // par din mein pass. Yeh woh bug hai jise log "flaky test" keh dete hain.
+  const nextElevenPm = new Date();
+  nextElevenPm.setHours(23, 0, 0, 0);
+  if (nextElevenPm.getTime() <= Date.now()) {
+    nextElevenPm.setDate(nextElevenPm.getDate() + 1);
+  }
   const inThirtyDays = new Date(Date.now() + 30 * 86_400_000);
 
   const nearbux20 = await prisma.promotion.create({
@@ -315,7 +323,7 @@ async function main() {
       maxDiscountMinor: 50000,
       minOrderMinor: 250000,
       startsAt: daysAgoAt(2, 0, 0),
-      endsAt: todayAt23, // "Valid till Today, 11 PM"
+      endsAt: nextElevenPm, // "Valid till Today, 11 PM"
     },
   });
 
