@@ -1,0 +1,18 @@
+{
+  "extends": "@nearbux/config/tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false,
+    // Prisma ke inferred types generated client ke internal paths reference
+    // karte hain, jo portably .d.ts mein naam nahi ho sakte (TS2742).
+    // Consumers phir bhi types paate hain kyunki woh src par point karte hain
+    // development mein, aur runtime types unhe generated client se milte hain.
+    "declaration": false,
+    "declarationMap": false
+  },
+  // prisma/ deliberately bahar hai — seed tsx se chalti hai, build se nahi
+  "include": ["src/**/*"]
+}

@@ -2,9 +2,22 @@ packages:
   - "apps/*"
   - "packages/*"
 
-# pnpm 10+ default se postinstall scripts block karta hai. Prisma ko apne
-# query engine binaries download karne ke liye yeh chahiye.
+# pnpm 12 ne settings .npmrc se yahan move kar di hain. .npmrc mein rakhne par
+# yeh chupchaap ignore ho jaati hain — koi warning nahi.
+#
+# hoisted linker do wajah se zaroori hai:
+#  1. Prisma ka generated client packages/database/generated/ mein baithta hai,
+#     jo kisi node_modules ke andar nahi hai. Uska transitive dep
+#     @prisma/client-runtime-utils default (isolated) layout se resolve nahi
+#     hota — production build MODULE_NOT_FOUND se crash karti hai.
+#  2. Metro (Expo ka bundler, Phase 4) pnpm ke strict symlinks reliably
+#     resolve nahi karta.
 allowBuilds:
   '@prisma/engines': true
   esbuild: true
   prisma: true
+
+nodeLinker: hoisted
+
+# pnpm 10+ default se postinstall scripts block karta hai. Prisma ko apne
+# query engine binaries download karne ke liye yeh chahiye.

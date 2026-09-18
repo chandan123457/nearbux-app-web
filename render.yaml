@@ -1,0 +1,63 @@
+# Render Blueprint — nearbux backend
+#
+# CRITICAL: rootDir set NAHI hai (matlab repo root).
+# apps/api set karne par build fail hogi: Render root ke bahar ki files
+# build time par available nahi karta, aur yeh service packages/core,
+# packages/types, packages/validation aur packages/database par depend karti
+# hai. Woh sab root ke neeche hain.
+services:
+  - type: web
+    name: nearbux-api
+    runtime: node
+    plan: starter
+    region: singapore # Bengaluru users ke sabse paas
+    healthCheckPath: /v1/health
+
+    buildCommand: >-
+      corepack enable &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @nearbux/database run generate &&
+      pnpm --filter @nearbux/api run build
+
+    # Naye code ke traffic lene se PEHLE chalta hai, aur SIRF EK BAAR —
+    # chahe kitne bhi instances ho. Migrations ko startCommand mein daalne par
+    # har instance ek saath migrate karne lagega.
+    preDeployCommand: pnpm --filter @nearbux/database run migrate:deploy
+
+    startCommand: pnpm --filter @nearbux/api run start
+
+    # Mobile-only commits par deploy trigger na ho
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+      ignoredPaths:
+        - apps/mobile/**
+        - "**/*.md"
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000 # Render ka default port
+      - key: DATABASE_POOL_MAX
+        value: 5
+      - key: LOG_LEVEL
+        value: info
+      # Neeche wale Render dashboard mein set hote hain — git mein kabhi nahi.
+      #   DATABASE_URL         → Neon POOLED endpoint
+      #   DIRECT_DATABASE_URL  → Neon DIRECT endpoint (migrations ke liye)
+      #   CORS_ORIGINS         → tumhare web app ka origin, "*" nahi
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true

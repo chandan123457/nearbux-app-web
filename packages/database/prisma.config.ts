@@ -22,6 +22,6 @@ export default defineConfig({
   },
   migrations: {
     path: path.join('prisma', 'migrations'),
-    seed: 'tsx prisma/seed.ts',
+    seed: 'tsx --conditions=development prisma/seed.ts',
   },
 });

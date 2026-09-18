@@ -3,8 +3,8 @@
 Hyperlocal multi-store delivery marketplace — ek shared TypeScript codebase se
 **web + Android + iOS**, plus ek Node.js backend.
 
-> **Status:** Phase 0 (monorepo foundation) aur Phase 1 (data model) complete.
-> `apps/api` aur `apps/mobile` abhi nahi bane — woh Phase 2 aur Phase 4 hain.
+> **Status:** Phase 0 (foundation), Phase 1 (data model) aur Phase 2 (backend
+> auth API) complete. `apps/mobile` Phase 4 hai.
 
 ## Requirements
 
@@ -42,9 +42,10 @@ par dono same rehte hain.
 Verify:
 
 ```bash
-pnpm typecheck                     # saare packages
-pnpm --filter @nearbux/core test   # business logic tests
-pnpm db:studio                     # data browse karo
+pnpm typecheck        # saare packages
+pnpm test             # unit + integration (local Postgres chahiye)
+pnpm dev              # API on http://localhost:3000
+pnpm db:studio        # data browse karo
 ```
 
 Seeded login: **+91 98765 43210** (Rahul Sharma)
@@ -52,7 +53,8 @@ Seeded login: **+91 98765 43210** (Rahul Sharma)
 ## Workspace
 
 ```
-apps/                        # Phase 2+: api (Fastify), mobile (Expo)
+apps/
+└── api/         Fastify backend — auth, health, profile
 packages/
 ├── config/      shared tsconfig / prettier / editorconfig
 ├── types/       domain DTOs + enums — har screen ka API contract
@@ -66,6 +68,41 @@ packages/
 **Import rule:** `packages/database` sirf `apps/api` import karta hai. Prisma
 kabhi client bundle mein nahi jaana chahiye — warna DB schema aur query logic
 har user ke device par ship ho jaayega.
+
+**Package resolution:** shared packages `dist/` ship karte hain, `src/` nahi.
+`exports` mein ek `development` condition hai jo TypeScript source par point
+karti hai; `tsx` aur `vitest` `--conditions=development` pass karte hain, aur
+production `node` `default` → compiled JS par jaata hai. Iske bina production
+build ek `.ts` file import karne ki koshish karti hai aur crash ho jaati hai.
+
+## API
+
+Base path `/v1`. Sab errors ek hi envelope mein:
+`{ code, message, details? }` — client `code` par branch kare, `message` par nahi.
+
+| Method | Route | Auth | Kya karta hai |
+|---|---|---|---|
+| GET | `/health` | — | Liveness. DB touch nahi karta. |
+| GET | `/health/ready` | — | Readiness. DB check karta hai. |
+| POST | `/auth/otp/request` | — | 6-digit code bhejta hai (dev mein log) |
+| POST | `/auth/otp/verify` | — | Login ya signup (201 = naya user) |
+| POST | `/auth/refresh` | — | Token rotate karta hai |
+| POST | `/auth/logout` | — | Ek session revoke |
+| POST | `/auth/logout-all` | ✓ | Sab devices se logout |
+| GET | `/me` | ✓ | Profile (screen [12]) |
+| PATCH | `/me` | ✓ | Naam / email update |
+
+### Auth model
+
+- **Phone OTP** — koi password nahi. Pehla login hi signup hai.
+- **Access token**: JWT, 15 min, memory mein rakho.
+- **Refresh token**: opaque random string, database mein SHA-256 hash.
+  JWT deliberately nahi — signed JWT expiry se pehle revoke nahi ho sakta.
+- **Rotation + reuse detection**: har refresh purana token maarta hai. Ek
+  already-rotated token dobara use hua = chori ka signal → us user ke saare
+  sessions revoke.
+- **OTP**: Argon2id se hashed (6 digits ki entropy bahut kam hai), 5 min TTL,
+  attempt limit, ek waqt par ek valid code, per-phone throttle IP limit ke upar.
 
 ## Design invariants
 
@@ -107,6 +144,21 @@ Do migrations:
 - `*_search_geo_and_check_constraints` — handwritten: `earthdistance` GiST geo
   index, partial indexes, aur saare CHECK constraints. Yeh sab Prisma schema se
   express nahi ho sakta.
+
+## Deploy (Render)
+
+`render.yaml` blueprint repo mein hai. Ek cheez sabse zyada important:
+
+**Root Directory KHAALI rakhna.** `apps/api` set karne par build fail hogi —
+Render root ke bahar ki files build time par nahi deta, aur yeh service
+`packages/*` par depend karti hai.
+
+Migrations `preDeployCommand` mein hain, `startCommand` mein nahi. Warna har
+instance ek saath migrate karega.
+
+Render dashboard mein set karo: `DATABASE_URL` (pooled), `DIRECT_DATABASE_URL`
+(direct), `CORS_ORIGINS` (asli origin, `*` nahi). JWT secrets blueprint
+auto-generate karta hai.
 
 ## Notes for later
 

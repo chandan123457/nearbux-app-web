@@ -165,6 +165,32 @@ model Session {
   @@map("sessions")
 }
 
+/// Phone-OTP login challenge.
+///
+/// User se alag table hai kyunki challenge login se PEHLE bante hain — us
+/// waqt user exist hi nahi karta (pehli baar login = signup).
+///
+/// `codeHash` Argon2id se hash hota hai, plaintext nahi. 6-digit code ki
+/// entropy bahut kam hai (10 lakh possibilities), isliye database leak hone
+/// par fast hash seconds mein crack ho jaata. Argon2 deliberately slow hai.
+///
+/// `attempts` brute force rokta hai: har verify par badhta hai, limit ke baad
+/// challenge dead. Warna 6 digits guess karna trivial hai.
+model OtpChallenge {
+  id          String    @id @default(uuid()) @db.Uuid
+  phone       String    @db.VarChar(16)
+  codeHash    String    @db.VarChar(255)
+  attempts    Int       @default(0)
+  expiresAt   DateTime  @db.Timestamptz(3)
+  consumedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  /// Latest active challenge lookup
+  @@index([phone, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("otp_challenges")
+}
+
 /// Expo push tokens — order status notifications (screen [13]) ke liye
 model DeviceToken {
   id         String   @id @default(uuid()) @db.Uuid

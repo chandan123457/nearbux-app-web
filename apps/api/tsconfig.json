@@ -1,0 +1,18 @@
+{
+  "extends": "@nearbux/config/tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false,
+    "noEmit": false,
+    // Yeh ek APPLICATION hai, library nahi — koi iske types import nahi karta.
+    // declaration on rakhne se TS2742 aata hai: Prisma ke inferred types
+    // generated client ke internal paths ko reference karte hain, jo .d.ts
+    // mein portably name nahi ho sakte.
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"]
+}

@@ -10,6 +10,12 @@ export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 export const verifyOtpSchema = z.object({
   phone: phoneSchema,
   code: otpSchema,
+  /**
+   * Sirf pehli baar (signup) par use hota hai. Pehle yeh yahan tha hi nahi,
+   * aur Zod unknown keys strip kar deta hai — isliye naye users ka naam
+   * chupchaap gir jaata tha aur sab "NearBux User" ban jaate the.
+   */
+  fullName: z.string().trim().min(2, 'Name is too short').max(60).optional(),
   /** Push notifications ke liye device register karne hetu */
   deviceToken: z.string().min(1).optional(),
   platform: z.enum(['ios', 'android', 'web']).optional(),

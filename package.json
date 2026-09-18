@@ -18,9 +18,10 @@
     "db:reset": "pnpm --filter @nearbux/database run reset",
     "db:studio": "pnpm --filter @nearbux/database run studio",
     "typecheck": "pnpm -r --no-bail typecheck",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter \"@nearbux/api...\" run build",
     "test": "pnpm -r --no-bail test",
-    "clean": "pnpm -r exec rm -rf dist node_modules .turbo && rm -rf node_modules"
+    "clean": "pnpm -r exec rm -rf dist node_modules .turbo && rm -rf node_modules",
+    "dev": "pnpm --filter @nearbux/api run dev"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
