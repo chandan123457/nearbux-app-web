@@ -163,6 +163,14 @@ export interface CartItem {
   productId: string;
   name: string;
   unitLabel: string;
+  /**
+   * Chhota descriptor jo unit ke baad aata hai: "2 pcs pack • 350g",
+   * "1 Liter • Pasteurized" (screen [21]).
+   *
+   * Server best available value chunta hai — product ka unitDetail, warna
+   * pehla badge — taaki teeno platforms ek hi string dikhayein.
+   */
+  unitDetail: string | null;
   imageUrl: string | null;
   unitPriceMinor: Minor;
   quantity: number;

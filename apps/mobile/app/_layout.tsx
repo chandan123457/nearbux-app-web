@@ -46,6 +46,7 @@ export default function RootLayout() {
             <Stack.Screen name="store/[slug]" />
             <Stack.Screen name="product/[id]" />
             <Stack.Screen name="order/[id]" />
+            <Stack.Screen name="order-placed/[id]" />
             <Stack.Screen name="checkout/[storeId]" />
             <Stack.Screen name="notifications" />
             {/* Auth screens abhi bhi hain — checkout unhe push karega */}

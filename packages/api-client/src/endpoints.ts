@@ -1,6 +1,7 @@
 import type {
   Address,
   Cart,
+  SavedPaymentMethod,
   HomeFeed,
   NotificationFeed,
   OrderDetail,
@@ -91,6 +92,10 @@ export function createEndpoints(client: ApiClient) {
       },
       update(input: UpdateProfileInput) {
         return client.request<UserProfile>('/v1/me', { method: 'PATCH', body: input });
+      },
+      /** Screen [22] ka payment method card */
+      paymentMethods() {
+        return client.request<SavedPaymentMethod[]>('/v1/payment-methods');
       },
     },
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { updateProfileSchema } from '@nearbux/validation';
 import { initials } from '@nearbux/core';
-import type { UserProfile } from '@nearbux/types';
+import type { SavedPaymentMethod, UserProfile } from '@nearbux/types';
 import { parse } from '../../lib/validate.js';
 import { Errors } from '../../lib/errors.js';
 
@@ -14,6 +14,26 @@ export default async function meRoutes(app: FastifyInstance) {
     if (!user) throw Errors.notFound('User');
     return toProfile(user);
   });
+
+  /**
+   * Saved payment methods (screen [22] ka "PAYMENT METHOD" card).
+   *
+   * Sirf display-safe fields nikalte hain. `providerToken` kabhi client tak
+   * nahi jaata — woh gateway ke saath charge karne ke liye hai, dikhane ke
+   * liye nahi.
+   */
+  app.get(
+    '/payment-methods',
+    { preHandler: app.requireAuth },
+    async (request): Promise<SavedPaymentMethod[]> => {
+      const rows = await app.db.savedPaymentMethod.findMany({
+        where: { userId: request.currentUser!.sub, deletedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        select: { id: true, type: true, displayLabel: true, isDefault: true },
+      });
+      return rows;
+    },
+  );
 
   app.patch('/me', { preHandler: app.requireAuth }, async (request): Promise<UserProfile> => {
     const body = parse(updateProfileSchema, request.body);

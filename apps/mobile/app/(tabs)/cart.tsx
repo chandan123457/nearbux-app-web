@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowRight, ShoppingCart, Store, Tag } from 'lucide-react-native';
 import { formatEta, formatMinor } from '@nearbux/core';
 import type { Cart } from '@nearbux/types';
+import { ApiClientError } from '@nearbux/api-client';
 import {
-  Badge,
   BillSummary,
   Card,
   CartItemRow,
@@ -14,6 +14,7 @@ import {
   contentContainer,
   fontSize,
   fontWeight,
+  radius,
   spacing,
   text,
   theme,
@@ -21,18 +22,15 @@ import {
 import { GradientButton } from '../../src/components/GradientButton';
 import { CenteredSpinner } from '../../src/components/ScreenState';
 import { SignInPrompt } from '../../src/components/SignInPrompt';
-import { useSession } from '../../src/lib/session';
 import { useCartMutations, useCarts } from '../../src/lib/queries';
+import { useSession } from '../../src/lib/session';
 
-/** Screen [7] — My Cart */
+/** Screen [21] — My Cart */
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isSignedIn } = useSession();
   const { data: carts, isLoading } = useCarts(isSignedIn);
-  const { setQuantity, clear, applyPromotion, removePromotion } = useCartMutations();
-  const [promoCode, setPromoCode] = useState('');
-  const [promoError, setPromoError] = useState<string | null>(null);
 
   if (!isSignedIn) {
     return (
@@ -50,7 +48,7 @@ export default function CartScreen() {
 
   if (activeCarts.length === 0) {
     return (
-      <View style={[styles.root, { paddingTop: insets.top }]}>
+      <View style={[styles.root, styles.centered, { paddingTop: insets.top }]}>
         <EmptyState
           icon={<ShoppingCart size={40} color={theme.textDisabled} strokeWidth={1.5} />}
           title="Your cart is empty"
@@ -69,65 +67,49 @@ export default function CartScreen() {
     >
       <View style={[contentContainer, styles.content, { paddingTop: insets.top + spacing.md }]}>
         {activeCarts.map((cart) => (
-          <CartBlock
-            key={cart.id}
-            cart={cart}
-            onChangeQuantity={(productId, quantity) =>
-              setQuantity.mutate({ storeId: cart.storeId, productId, quantity })
-            }
-            onClear={() => clear.mutate(cart.storeId)}
-            onApplyPromo={(code) => {
-              setPromoError(null);
-              applyPromotion.mutate(
-                { storeId: cart.storeId, code },
-                {
-                  onError: (err) => setPromoError((err as Error).message),
-                  onSuccess: () => setPromoCode(''),
-                },
-              );
-            }}
-            onRemovePromo={() => removePromotion.mutate(cart.storeId)}
-            promoCode={promoCode}
-            onPromoCodeChange={setPromoCode}
-            promoError={promoError}
-            onCheckout={() => router.push(`/checkout/${cart.storeId}`)}
-          />
+          <StoreCart key={cart.id} cart={cart} />
         ))}
       </View>
     </ScrollView>
   );
 }
 
-interface CartBlockProps {
-  cart: Cart;
-  onChangeQuantity: (productId: string, quantity: number) => void;
-  onClear: () => void;
-  onApplyPromo: (code: string) => void;
-  onRemovePromo: () => void;
-  promoCode: string;
-  onPromoCodeChange: (code: string) => void;
-  promoError: string | null;
-  onCheckout: () => void;
-}
+function StoreCart({ cart }: { cart: Cart }) {
+  const router = useRouter();
+  const { setQuantity, clear, removePromotion } = useCartMutations();
+  const [error, setError] = useState<string | null>(null);
 
-function CartBlock({
-  cart,
-  onChangeQuantity,
-  onClear,
-  onRemovePromo,
-  onCheckout,
-}: CartBlockProps) {
+  function changeQuantity(productId: string, quantity: number) {
+    setError(null);
+    setQuantity.mutate(
+      { storeId: cart.storeId, productId, quantity },
+      { onError: (err) => setError(err instanceof ApiClientError ? err.message : 'Could not update your cart.') },
+    );
+  }
+
+  const hasUnavailable = cart.items.some((item) => !item.isAvailable);
+
   return (
     <View style={styles.block}>
       <View style={styles.header}>
         <Text style={text.screenTitle}>My Cart</Text>
-        <Badge label={`${cart.itemCount} items`} tone="neutral" />
+        <View style={styles.countChip}>
+          <Text style={styles.countLabel}>
+            {cart.itemCount} {cart.itemCount === 1 ? 'item' : 'items'}
+          </Text>
+        </View>
         <View style={styles.spacer} />
-        <Pressable onPress={onClear} hitSlop={8} accessibilityRole="button">
+        <Pressable
+          onPress={() => clear.mutate(cart.storeId)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Clear all items"
+        >
           <Text style={text.link}>Clear All</Text>
         </Pressable>
       </View>
 
+      {/* "Fulfilled by …" — ek cart hamesha EK store ka hota hai */}
       <Card variant="muted">
         <View style={styles.fulfilledRow}>
           <Store size={18} color={theme.textSecondary} />
@@ -137,10 +119,12 @@ function CartBlock({
               {cart.storeName}
             </Text>
           </View>
-          <Badge
-            label={formatEta(cart.etaMinMinutes, cart.etaMaxMinutes)}
-            tone="neutral"
-          />
+          <View style={styles.etaPill}>
+            <View style={styles.etaDot} />
+            <Text style={styles.etaLabel}>
+              {formatEta(cart.etaMinMinutes, cart.etaMaxMinutes)}
+            </Text>
+          </View>
         </View>
       </Card>
 
@@ -148,12 +132,14 @@ function CartBlock({
         <CartItemRow
           key={item.id}
           name={item.name}
-          subtitle={item.unitLabel}
+          subtitle={[item.unitLabel, item.unitDetail].filter(Boolean).join(' • ')}
           imageUrl={item.imageUrl}
+          // Line total, unit price nahi — qty 2 par "₹499" dikhana galat
+          // total suggest karta hai aur subtotal se match nahi karta
           priceLabel={formatMinor(item.lineTotalMinor)}
           quantity={item.quantity}
-          onChangeQuantity={(q) => onChangeQuantity(item.productId, q)}
-          onRemove={() => onChangeQuantity(item.productId, 0)}
+          onChangeQuantity={(q) => changeQuantity(item.productId, q)}
+          onRemove={() => changeQuantity(item.productId, 0)}
         />
       ))}
 
@@ -166,34 +152,48 @@ function CartBlock({
                 <Text style={styles.promoCode}>{cart.promotion.code}</Text>
                 <Text style={styles.promoApplied}>Applied</Text>
               </View>
-              <Text style={text.muted}>{cart.promotion.label}</Text>
+              <Text style={text.muted} numberOfLines={1}>
+                {cart.promotion.label}
+              </Text>
             </View>
-            <Pressable onPress={onRemovePromo} hitSlop={8} accessibilityRole="button">
+            <Pressable
+              onPress={() => removePromotion.mutate(cart.storeId)}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
               <Text style={text.link}>Remove</Text>
             </Pressable>
           </View>
         </Card>
       )}
 
-      <Card>
+      <Card variant="muted">
         <BillSummary
-          lines={buildBillLines(cart)}
+          lines={billLines(cart)}
           totalValue={formatMinor(cart.bill.totalMinor)}
           totalCaption="Incl. all taxes & fees"
         />
 
+        {error && <Text style={styles.error}>{error}</Text>}
+
+        {hasUnavailable && (
+          <Text style={styles.warning}>
+            Some items are no longer available. Remove them to continue.
+          </Text>
+        )}
+
         {!cart.meetsMinimumOrder && (
-          <Text style={styles.minimumWarning}>
-            Add {formatMinor(cart.minOrderMinor - cart.bill.itemTotalMinor)} more to meet the
-            store minimum.
+          <Text style={styles.warning}>
+            Add {formatMinor(cart.minOrderMinor - cart.bill.itemTotalMinor)} more to meet the store
+            minimum.
           </Text>
         )}
 
         <View style={styles.checkoutWrap}>
           <GradientButton
             label="Proceed to Checkout"
-            onPress={onCheckout}
-            disabled={!cart.meetsMinimumOrder || cart.items.some((i) => !i.isAvailable)}
+            onPress={() => router.push(`/checkout/${cart.storeId}`)}
+            disabled={!cart.meetsMinimumOrder || hasUnavailable}
             iconRight={<ArrowRight size={18} color={theme.textInverse} />}
           />
         </View>
@@ -202,22 +202,29 @@ function CartBlock({
   );
 }
 
-/** Zero lines chhupa dete hain — "Discount ₹0.00" sirf noise hai */
-function buildBillLines(cart: Cart) {
-  const lines = [{ label: 'Subtotal', value: formatMinor(cart.bill.itemTotalMinor) }];
+/**
+ * Screen [21] ka bill.
+ *
+ * Zero lines chhupti hain — "Discount ₹0.00" sirf shor hai. Discount promo
+ * ke baad aata hai taaki user turant dekh sake ki code ne kya kiya.
+ */
+function billLines(cart: Cart) {
+  const lines: Array<{ label: string; value: string; highlight?: boolean }> = [
+    { label: 'Subtotal', value: formatMinor(cart.bill.itemTotalMinor) },
+  ];
 
   if (cart.bill.discountMinor > 0 && cart.promotion) {
     lines.push({
       label: `Discount (${cart.promotion.code})`,
       value: `-${formatMinor(cart.bill.discountMinor)}`,
       highlight: true,
-    } as { label: string; value: string; highlight?: boolean });
+    });
   }
   if (cart.bill.deliveryFeeMinor > 0) {
     lines.push({ label: 'Delivery Fee', value: formatMinor(cart.bill.deliveryFeeMinor) });
   }
   lines.push({
-    label: 'Taxes & Fees',
+    label: 'Estimated Tax',
     value: formatMinor(cart.bill.taxMinor + cart.bill.platformFeeMinor),
   });
   return lines;
@@ -225,17 +232,40 @@ function buildBillLines(cart: Cart) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.background },
-  content: { paddingHorizontal: spacing.lg, gap: spacing.xl },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: spacing.lg, gap: spacing.md },
   block: { gap: spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  countChip: {
+    backgroundColor: theme.surfaceMuted,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+  },
+  countLabel: { fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: theme.textSecondary },
   spacer: { flex: 1 },
   fulfilledRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   fulfilledText: { flex: 1, gap: 2 },
+  etaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: theme.surface,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  etaDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.primary },
+  etaLabel: { fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: theme.textPrimary },
   promoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   promoText: { flex: 1, gap: 2 },
   promoCodeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   promoCode: { fontSize: fontSize.base, fontWeight: fontWeight.semibold, color: theme.textPrimary },
   promoApplied: { fontSize: fontSize.sm, color: theme.primary, fontWeight: fontWeight.medium },
-  minimumWarning: { marginTop: spacing.md, fontSize: fontSize.sm, color: theme.warningText },
-  checkoutWrap: { marginTop: spacing.lg },
+  error: { marginTop: spacing.md, fontSize: fontSize.sm, color: theme.danger },
+  warning: { marginTop: spacing.md, fontSize: fontSize.sm, color: theme.warningText },
+  checkoutWrap: {
+    marginTop: spacing.lg,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
 });

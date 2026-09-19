@@ -291,12 +291,12 @@ export const STORES: SeedStore[] = [
     hours: HOURS_7_TO_23,
     sections: ['Staples', 'Dairy', 'Bakery', 'Fruits & Veg'],
     products: [
-      { name: 'Basmati Rice Premium', unitLabel: '5kg bag', section: 'Staples', priceMinor: 42000, stockQty: 40, popularityScore: 900 },
-      { name: 'Fresh Whole Milk', unitLabel: '1 Liter', section: 'Dairy', priceMinor: 13000, stockQty: 150, popularityScore: 950 },
-      { name: 'Organic Farm Eggs', unitLabel: 'Pack of 12', section: 'Dairy', priceMinor: 11000, badges: ['Organic Certified'], stockQty: 70, popularityScore: 880 },
-      { name: 'Artisan Whole Wheat Sourdough', unitLabel: '400g loaf', section: 'Bakery', priceMinor: 8500, stockQty: 30, popularityScore: 700 },
-      { name: 'Organic Hass Avocados', unitLabel: '2 pcs pack', section: 'Fruits & Veg', priceMinor: 49900, mrpMinor: 64900, badges: ['Organic Certified'], stockQty: 45, popularityScore: 860 },
-      { name: 'Artisan Sourdough Loaf', unitLabel: '500g loaf', section: 'Bakery', priceMinor: 39900, stockQty: 20, popularityScore: 680 },
+      { name: 'Basmati Rice Premium', unitLabel: '5kg bag', unitDetail: 'Aged 12 months', section: 'Staples', priceMinor: 42000, stockQty: 40, popularityScore: 900 },
+      { name: 'Fresh Whole Milk', unitLabel: '1 Liter', unitDetail: 'Pasteurized', section: 'Dairy', priceMinor: 13000, stockQty: 150, popularityScore: 950 },
+      { name: 'Organic Farm Eggs', unitLabel: 'Pack of 12', unitDetail: 'Free range', section: 'Dairy', priceMinor: 11000, badges: ['Organic Certified'], stockQty: 70, popularityScore: 880 },
+      { name: 'Artisan Whole Wheat Sourdough', unitLabel: '400g loaf', unitDetail: 'Wild Yeast', section: 'Bakery', priceMinor: 8500, stockQty: 30, popularityScore: 700 },
+      { name: 'Organic Hass Avocados', unitLabel: '2 pcs pack', unitDetail: '350g', section: 'Fruits & Veg', priceMinor: 49900, mrpMinor: 64900, badges: ['Organic Certified'], stockQty: 45, popularityScore: 860 },
+      { name: 'Artisan Sourdough Loaf', unitLabel: '500g loaf', unitDetail: 'Wild Yeast', section: 'Bakery', priceMinor: 39900, stockQty: 20, popularityScore: 680 },
     ],
   },
   {

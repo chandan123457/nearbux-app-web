@@ -20,6 +20,8 @@ export function createCartService(repo: CartRepository) {
       productId: item.productId,
       name: item.product.name,
       unitLabel: item.product.unitLabel,
+      // unitDetail pehle, warna pehla badge — dono na hon to descriptor nahi
+      unitDetail: item.product.unitDetail ?? item.product.badges[0] ?? null,
       imageUrl: item.product.images[0] ?? null,
       unitPriceMinor: item.product.priceMinor,
       quantity: item.quantity,
