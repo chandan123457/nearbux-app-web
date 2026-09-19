@@ -13,6 +13,17 @@ declare module 'fastify' {
   interface FastifyInstance {
     /** preHandler: route ko sirf authenticated users ke liye band karta hai */
     requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /**
+     * preHandler: token ho to use karo, na ho to guest ke roop mein aage badho.
+     *
+     * Discovery isi ke peeche hai. Browsing ke liye account zaroori karna
+     * sabse mehnga funnel step hai — user pehle dekhna chahta hai ki uske
+     * paas kya available hai. Login checkout par maanga jaata hai.
+     *
+     * Token hone par personalisation milta hai (favourites, cart quantities);
+     * na hone par wahi data bina personalisation ke.
+     */
+    optionalAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     currentUser?: AccessTokenPayload;
@@ -49,6 +60,17 @@ export default fp(
         throw Errors.unauthorized('Invalid or expired access token');
       }
       request.currentUser = request.user;
+    });
+
+    app.decorate('optionalAuth', async function (request: FastifyRequest) {
+      // Expired ya galat token guest ki tarah treat hota hai, error ki tarah
+      // nahi — browsing ko kabhi block nahi karna chahiye.
+      try {
+        await request.jwtVerify();
+        request.currentUser = request.user;
+      } catch {
+        request.currentUser = undefined;
+      }
     });
   },
   { name: 'auth', dependencies: [] },

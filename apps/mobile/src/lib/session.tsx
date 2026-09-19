@@ -51,6 +51,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Boot par: agar refresh token hai to profile fetch karke session
       // restore karo. Access token expire ho chuka hoga — client use
       // chupchaap refresh kar lega.
+      //
+      // Yeh UI ko BLOCK nahi karta. App home par khulti hai chahe user signed
+      // in ho ya na ho; yeh check background mein chalta hai aur jab profile
+      // aa jaati hai tab UI update ho jaata hai. Guest ke liye splash spinner
+      // dikhana bekaar wait hai — uske liye kuch restore hona hi nahi hai.
       if (await apiClient.isSignedIn()) {
         try {
           const profile = await api.me.get();

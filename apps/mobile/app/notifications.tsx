@@ -14,9 +14,9 @@ import {
   text,
   theme,
 } from '@nearbux/ui';
-import { api } from '../../src/lib/api';
-import { CenteredSpinner } from './index';
-import { keys, useNotifications } from '../../src/lib/queries';
+import { api } from '../src/lib/api';
+import { CenteredSpinner } from '../src/components/ScreenState';
+import { keys, useNotifications } from '../src/lib/queries';
 
 /** Screen [13] */
 export default function NotificationsScreen() {

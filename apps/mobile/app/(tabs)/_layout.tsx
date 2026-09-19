@@ -3,15 +3,23 @@ import { Home, ShoppingCart, ReceiptText, User } from 'lucide-react-native';
 import { fontWeight, theme } from '@nearbux/ui';
 
 /**
- * Bottom tabs — screenshots wala navigation.
+ * Bottom tabs — hamesha EXACTLY chaar.
  *
- * Yahan Expo Router ke `Tabs` use kar rahe hain, @nearbux/ui ke
- * `BottomTabBar` ke bajaye: Tabs asli routing, deep links, web URLs aur
- * back-button behaviour deta hai. UI package ka BottomTabBar ab presentational
- * reference hai — agar baad mein custom tab bar chahiye to Tabs ka
- * `tabBar` prop usse render kar sakta hai.
+ * Expo Router is folder ki HAR route file ka tab banata hai. Pehle search,
+ * notifications, store, product, order aur checkout sab yahin the, aur tab
+ * bar mein nau buttons aa rahe the.
+ *
+ * Structure ab yeh decide karta hai ki tab bar kahan dikhega:
+ *   (tabs)/(home)/   → nested stack, tab bar DIKHTA hai (home, search)
+ *   (tabs)/*.tsx     → chaar tabs khud
+ *   app/*            → tabs ke bahar, tab bar ke UPAR full screen
+ *                      (store, product, order, checkout, notifications)
+ *
+ * Yeh sirf cosmetic nahi hai: store aur product screens ka apna sticky CTA
+ * hota hai ("Add to Cart"), aur uske neeche tab bar rakhna do competing
+ * navigation surfaces bana deta hai.
  */
-export default function AppLayout() {
+export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
@@ -21,13 +29,17 @@ export default function AppLayout() {
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderTopColor: theme.border,
+          borderTopWidth: 1,
+          height: 62,
+          paddingTop: 6,
+          paddingBottom: 8,
         },
-        tabBarLabelStyle: { fontWeight: fontWeight.medium },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: fontWeight.medium },
         sceneStyle: { backgroundColor: theme.background },
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="(home)"
         options={{ title: 'Home', tabBarIcon: ({ color }) => <Home size={22} color={color} /> }}
       />
       <Tabs.Screen

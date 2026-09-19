@@ -33,6 +33,20 @@ export function useHomeFeed(coords: Coords = DEFAULT_COORDS) {
   });
 }
 
+/**
+ * Nearby stores, home feed se alag.
+ *
+ * Search screen idle state mein yahi list dikhati hai. Home feed ka poora
+ * payload (banners, offers, address, unread count) laana yahan waste hai —
+ * screen [16] sirf stores dikhati hai.
+ */
+export function useNearbyStores(coords: Coords = DEFAULT_COORDS) {
+  return useQuery({
+    queryKey: ['stores', coords.latitude, coords.longitude],
+    queryFn: () => api.discovery.nearbyStores({ ...coords, radiusKm: 8 }),
+  });
+}
+
 export function useSearch(query: string, coords: Coords = DEFAULT_COORDS) {
   return useQuery({
     queryKey: keys.search(query, coords),
@@ -46,6 +60,8 @@ export function useSearch(query: string, coords: Coords = DEFAULT_COORDS) {
 export function useRecentSearches() {
   return useQuery({
     queryKey: keys.recentSearches,
+    // Guest ke liye server khaali list deta hai — ise block karne ki zaroorat
+    // nahi, woh optionalAuth par hai
     queryFn: () => api.discovery.recentSearches(),
   });
 }
@@ -79,14 +95,23 @@ export function useProduct(productId: string) {
   });
 }
 
-export function useCarts() {
-  return useQuery({ queryKey: keys.carts, queryFn: () => api.cart.list() });
+/**
+ * `enabled` flags zaroori hain, optional nahi.
+ *
+ * Inke bina app boot par guest ke liye teen authenticated requests jaati hain,
+ * sab 401 deti hain, aur API client har ek par refresh attempt karta hai.
+ * Guest ke liye woh sirf shor hai, aur signed-in user ke liye teen bekaar
+ * round trips.
+ */
+export function useCarts(enabled = true) {
+  return useQuery({ queryKey: keys.carts, queryFn: () => api.cart.list(), enabled });
 }
 
-export function useOrders(filter: string) {
+export function useOrders(filter: string, enabled = true) {
   return useQuery({
     queryKey: keys.orders(filter),
     queryFn: () => api.orders.list({ filter: filter as 'ALL' }),
+    enabled,
   });
 }
 

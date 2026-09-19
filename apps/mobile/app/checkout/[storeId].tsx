@@ -16,10 +16,10 @@ import {
   text,
   theme,
 } from '@nearbux/ui';
-import { GradientButton } from '../../../src/components/GradientButton';
-import { api } from '../../../src/lib/api';
-import { CenteredSpinner } from '../index';
-import { keys, useAddresses } from '../../../src/lib/queries';
+import { GradientButton } from '../../src/components/GradientButton';
+import { api } from '../../src/lib/api';
+import { CenteredSpinner } from '../../src/components/ScreenState';
+import { keys, useAddresses } from '../../src/lib/queries';
 
 /** Screens [8][9] — checkout aur order placement */
 export default function CheckoutScreen() {

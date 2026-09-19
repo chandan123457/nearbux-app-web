@@ -15,17 +15,22 @@ export default async function storeRoutes(app: FastifyInstance) {
    * Alag-alag endpoints se karne par app load par char round trips lagte,
    * aur mobile network par woh seedha dikhta hai.
    */
-  app.get('/home', { preHandler: app.requireAuth }, async (request) => {
+  app.get('/home', { preHandler: app.optionalAuth }, async (request) => {
     const query = parse(nearbyQuerySchema, request.query);
-    const userId = request.currentUser!.sub;
+    const userId = request.currentUser?.sub ?? null;
 
+    // Guest ke paas na address hai na notifications — woh queries chalao hi
+    // mat. `userId` null ke saath Prisma call karna crash hai, silent empty
+    // result nahi.
     const [feed, address, unread] = await Promise.all([
       service.getHomeFeed({ ...query, userId }),
-      app.db.address.findFirst({
-        where: { userId, deletedAt: null },
-        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      }),
-      app.db.notification.count({ where: { userId, readAt: null } }),
+      userId
+        ? app.db.address.findFirst({
+            where: { userId, deletedAt: null },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+          })
+        : Promise.resolve(null),
+      userId ? app.db.notification.count({ where: { userId, readAt: null } }) : Promise.resolve(0),
     ]);
 
     return {
@@ -50,15 +55,15 @@ export default async function storeRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/stores', { preHandler: app.requireAuth }, async (request) => {
+  app.get('/stores', { preHandler: app.optionalAuth }, async (request) => {
     const query = parse(nearbyQuerySchema, request.query);
-    return service.getNearbyStores({ ...query, userId: request.currentUser!.sub });
+    return service.getNearbyStores({ ...query, userId: request.currentUser?.sub ?? null });
   });
 
   /** Screens [2][4] — search + recent searches persist */
-  app.get('/search', { preHandler: app.requireAuth }, async (request) => {
+  app.get('/search', { preHandler: app.optionalAuth }, async (request) => {
     const query = parse(searchQuerySchema, request.query);
-    const userId = request.currentUser!.sub;
+    const userId = request.currentUser?.sub ?? null;
 
     const [results, recent] = await Promise.all([
       // Schema field `q` hai (URL mein chhota rehna chahiye), service `query`
@@ -70,30 +75,38 @@ export default async function storeRoutes(app: FastifyInstance) {
         longitude: query.longitude,
         radiusKm: query.radiusKm,
       }),
-      app.db.searchHistory.findMany({
-        where: { userId },
-        orderBy: { searchedAt: 'desc' },
-        take: COMMERCE.MAX_RECENT_SEARCHES,
-        select: { query: true },
-      }),
+      userId
+        ? app.db.searchHistory.findMany({
+            where: { userId },
+            orderBy: { searchedAt: 'desc' },
+            take: COMMERCE.MAX_RECENT_SEARCHES,
+            select: { query: true },
+          })
+        : Promise.resolve([]),
     ]);
 
-    // Search record karo — upsert, naya row nahi, warna same query baar-baar
-    // chips mein bhar jaati hai
-    await app.db.searchHistory
-      .upsert({
-        where: { userId_query: { userId, query: query.q } },
-        create: { userId, query: query.q },
-        update: { searchedAt: new Date() },
-      })
-      .catch(() => undefined);
+    // Search history sirf signed-in users ke liye — guest ki koi identity nahi
+    // jisse ise attach kiya ja sake.
+    if (userId) {
+      // Upsert, naya row nahi, warna same query baar-baar chips mein bhar jaati hai
+      await app.db.searchHistory
+        .upsert({
+          where: { userId_query: { userId, query: query.q } },
+          create: { userId, query: query.q },
+          update: { searchedAt: new Date() },
+        })
+        .catch(() => undefined);
+    }
 
     return { ...results, recentSearches: recent.map((r) => r.query) };
   });
 
-  app.get('/search/recent', { preHandler: app.requireAuth }, async (request) => {
+  app.get('/search/recent', { preHandler: app.optionalAuth }, async (request) => {
+    const userId = request.currentUser?.sub;
+    if (!userId) return { recentSearches: [] };
+
     const rows = await app.db.searchHistory.findMany({
-      where: { userId: request.currentUser!.sub },
+      where: { userId },
       orderBy: { searchedAt: 'desc' },
       take: COMMERCE.MAX_RECENT_SEARCHES,
       select: { query: true },
@@ -109,12 +122,12 @@ export default async function storeRoutes(app: FastifyInstance) {
   /** Screen [3] — store detail */
   app.get<{ Params: { slug: string } }>(
     '/stores/:slug',
-    { preHandler: app.requireAuth },
+    { preHandler: app.optionalAuth },
     async (request) => {
       const { latitude, longitude } = request.query as { latitude?: string; longitude?: string };
       return service.getStoreBySlug({
         slug: request.params.slug,
-        userId: request.currentUser!.sub,
+        userId: request.currentUser?.sub ?? null,
         latitude: latitude ? Number(latitude) : undefined,
         longitude: longitude ? Number(longitude) : undefined,
       });
@@ -124,21 +137,21 @@ export default async function storeRoutes(app: FastifyInstance) {
   /** Screens [3][5] — catalog */
   app.get<{ Params: { id: string } }>(
     '/stores/:id/products',
-    { preHandler: app.requireAuth },
+    { preHandler: app.optionalAuth },
     async (request) => {
       const storeId = parse(uuidSchema, request.params.id);
       const query = parse(storeProductsQuerySchema, request.query);
-      return service.getStoreProducts({ ...query, storeId, userId: request.currentUser!.sub });
+      return service.getStoreProducts({ ...query, storeId, userId: request.currentUser?.sub ?? null });
     },
   );
 
   /** Screen [6] — product detail */
   app.get<{ Params: { id: string } }>(
     '/products/:id',
-    { preHandler: app.requireAuth },
+    { preHandler: app.optionalAuth },
     async (request) => {
       const productId = parse(uuidSchema, request.params.id);
-      return service.getProduct({ productId, userId: request.currentUser!.sub });
+      return service.getProduct({ productId, userId: request.currentUser?.sub ?? null });
     },
   );
 }

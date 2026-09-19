@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, ChevronDown, Store } from 'lucide-react-native';
 import { formatDistance, formatEta, formatMinor } from '@nearbux/core';
@@ -20,8 +20,9 @@ import {
   text,
   theme,
 } from '@nearbux/ui';
-import { coordsFrom } from '../../src/lib/location';
-import { useFavoriteMutations, useHomeFeed } from '../../src/lib/queries';
+import { CenteredSpinner } from '../../../src/components/ScreenState';
+import { coordsFrom } from '../../../src/lib/location';
+import { useFavoriteMutations, useHomeFeed } from '../../../src/lib/queries';
 
 /** Screen [1] — Home */
 export default function HomeScreen() {
@@ -163,14 +164,6 @@ export default function HomeScreen() {
       </View>
       <View style={{ height: spacing.xl }} />
     </ScrollView>
-  );
-}
-
-export function CenteredSpinner({ insetTop = 0 }: { insetTop?: number }) {
-  return (
-    <View style={[styles.root, styles.centered, { paddingTop: insetTop }]}>
-      <ActivityIndicator size="large" color={theme.primary} />
-    </View>
   );
 }
 

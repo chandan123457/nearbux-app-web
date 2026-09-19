@@ -346,6 +346,66 @@ describe('orders', () => {
   });
 });
 
+/**
+ * Guest browsing.
+ *
+ * Discovery bina token ke khuli hai. Yeh sirf dev convenience nahi hai —
+ * browsing ke liye account maangna funnel ka sabse mehnga step hai. Login
+ * tab maanga jaata hai jab identity sach mein chahiye: cart, orders, checkout.
+ */
+describe('guest access', () => {
+  async function guestGet(url: string) {
+    return app.inject({ method: 'GET', url });
+  }
+
+  it('home feed bina token ke deta hai', async () => {
+    const res = await guestGet(
+      `/v1/home?latitude=${BENGALURU.latitude}&longitude=${BENGALURU.longitude}`,
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.nearbyStores.length).toBeGreaterThan(0);
+    // Guest ke paas personalisation nahi hoti
+    expect(body.deliverTo).toBeNull();
+    expect(body.unreadNotificationCount).toBe(0);
+    expect(body.nearbyStores.every((s: { isFavorite: boolean }) => !s.isFavorite)).toBe(true);
+  });
+
+  it('search bina token ke chalti hai, par history save nahi karti', async () => {
+    const res = await guestGet(
+      `/v1/search?q=organic&latitude=${BENGALURU.latitude}&longitude=${BENGALURU.longitude}`,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().products.length).toBeGreaterThan(0);
+    // Guest ki koi identity nahi jisse history attach ho
+    expect(res.json().recentSearches).toEqual([]);
+  });
+
+  it('store aur product detail bina token ke khulte hain', async () => {
+    expect((await guestGet(`/v1/stores/${storeSlug}`)).statusCode).toBe(200);
+    expect((await guestGet(`/v1/products/${productIds[0]}`)).statusCode).toBe(200);
+    expect((await guestGet(`/v1/stores/${storeId}/products`)).statusCode).toBe(200);
+  });
+
+  it('cart, orders aur profile ab bhi auth maangte hain', async () => {
+    for (const url of ['/v1/carts', '/v1/orders', '/v1/me', '/v1/addresses']) {
+      expect((await guestGet(url)).statusCode, url).toBe(401);
+    }
+  });
+
+  it('kharab token guest ki tarah treat hota hai, error ki tarah nahi', async () => {
+    // Expired token par browsing block karna sabse bura outcome hai — user ko
+    // lagta hai app toot gaya
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/home?latitude=${BENGALURU.latitude}&longitude=${BENGALURU.longitude}`,
+      headers: { authorization: 'Bearer definitely-not-a-valid-jwt' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().deliverTo).toBeNull();
+  });
+});
+
 describe('favorites', () => {
   it('store favourite toggle karta hai', async () => {
     const add = await app.inject({

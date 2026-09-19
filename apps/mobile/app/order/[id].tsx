@@ -17,9 +17,9 @@ import {
   text,
   theme,
 } from '@nearbux/ui';
-import { api } from '../../../src/lib/api';
-import { CenteredSpinner } from '../index';
-import { keys, useOrder } from '../../../src/lib/queries';
+import { api } from '../../src/lib/api';
+import { CenteredSpinner } from '../../src/components/ScreenState';
+import { keys, useOrder } from '../../src/lib/queries';
 
 /** Screens [9][10][14] — success, tracking aur receipt */
 export default function OrderScreen() {

@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { theme } from '@nearbux/ui';
-import { SessionProvider, useSession } from '../src/lib/session';
+import { SessionProvider } from '../src/lib/session';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,52 +20,37 @@ const queryClient = new QueryClient({
 });
 
 /**
- * Auth gate.
+ * Root navigator.
  *
- * Yeh ek jagah decide karta hai ki user (auth) group mein rahega ya (app)
- * group mein. Har screen mein alag-alag redirect likhne se hamesha koi ek
- * screen chhut jaati hai aur signed-out user protected content dekh leta hai.
+ * Koi auth gate NAHI hai: app hamesha home par khulti hai. Browsing guest ke
+ * liye khuli hai (discovery endpoints `optionalAuth` par hain), aur login
+ * tab maanga jaata hai jab woh sach mein zaroori ho — cart, orders, profile
+ * aur checkout par.
+ *
+ * Yeh sirf dev convenience nahi hai. Browsing ke liye account maangna funnel
+ * ka sabse mehnga step hai: user pehle dekhna chahta hai ki uske area mein
+ * kya milta hai, tabhi woh number dene ko taiyaar hota hai.
+ *
+ * Stack order matter karta hai — (tabs) pehla hai, isliye wahi initial route
+ * hai. store/product/order/checkout tabs ke UPAR push hote hain, isliye
+ * unka apna full screen milta hai bina tab bar ke.
  */
-function AuthGate({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, isLoading } = useSession();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (isLoading) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (!isSignedIn && !inAuthGroup) {
-      router.replace('/sign-in');
-    } else if (isSignedIn && inAuthGroup) {
-      router.replace('/');
-    }
-  }, [isSignedIn, isLoading, segments, router]);
-
-  if (isLoading) {
-    return (
-      <View style={styles.splash}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
-    );
-  }
-
-  return <>{children}</>;
-}
-
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <StatusBar style="dark" />
-          <AuthGate>
-            <Stack screenOptions={{ headerShown: false, contentStyle: styles.content }}>
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(app)" />
-            </Stack>
-          </AuthGate>
+          <Stack screenOptions={{ headerShown: false, contentStyle: styles.content }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="store/[slug]" />
+            <Stack.Screen name="product/[id]" />
+            <Stack.Screen name="order/[id]" />
+            <Stack.Screen name="checkout/[storeId]" />
+            <Stack.Screen name="notifications" />
+            {/* Auth screens abhi bhi hain — checkout unhe push karega */}
+            <Stack.Screen name="(auth)" options={{ presentation: 'modal' }} />
+          </Stack>
         </SessionProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
@@ -74,11 +58,5 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  splash: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.background,
-  },
   content: { backgroundColor: theme.background },
 });

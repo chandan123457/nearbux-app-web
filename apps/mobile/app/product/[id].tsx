@@ -18,9 +18,9 @@ import {
   text,
   theme,
 } from '@nearbux/ui';
-import { GradientButton } from '../../../src/components/GradientButton';
-import { CenteredSpinner } from '../index';
-import { useCartMutations, useFavoriteMutations, useProduct } from '../../../src/lib/queries';
+import { GradientButton } from '../../src/components/GradientButton';
+import { CenteredSpinner } from '../../src/components/ScreenState';
+import { useCartMutations, useFavoriteMutations, useProduct } from '../../src/lib/queries';
 
 /** Screen [6] — product detail */
 export default function ProductScreen() {

@@ -12,6 +12,7 @@ import {
   theme,
 } from '@nearbux/ui';
 import { api } from '../../src/lib/api';
+import { SignInPrompt } from '../../src/components/SignInPrompt';
 import { useSession } from '../../src/lib/session';
 
 const MENU = [
@@ -33,7 +34,7 @@ const SUPPORT = [
  * unke endpoints nahi bane.
  */
 export default function ProfileScreen() {
-  const { user, signOut } = useSession();
+  const { user, isSignedIn, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
@@ -60,6 +61,16 @@ export default function ProfileScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log out', style: 'destructive', onPress: () => void handleSignOut() },
     ]);
+  }
+
+  if (!isSignedIn) {
+    return (
+      <SignInPrompt
+        insetTop={insets.top}
+        title="Sign in to NearBux"
+        message="Save addresses, track orders and check out faster."
+      />
+    );
   }
 
   return (
