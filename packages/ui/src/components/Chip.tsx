@@ -6,6 +6,17 @@ export interface ChipProps {
   selected?: boolean;
   onPress?: () => void;
   icon?: React.ReactNode;
+  /**
+   * Selected state ka rang. Designs mein do alag hain:
+   *   'dark'    store ki category chips (screen [18]) — almost-black
+   *   'primary' orders ke filter tabs (screen [25]) — brand blue
+   *
+   * Yeh ek hi component ke do use hain, do components nahi: filter tabs aur
+   * category chips ka behaviour same hai, sirf emphasis alag hai. Category
+   * chips content filter karti hain aur peeche rehni chahiye; filter tabs
+   * hi us screen ka primary control hain.
+   */
+  tone?: 'dark' | 'primary';
 }
 
 /**
@@ -13,7 +24,7 @@ export interface ChipProps {
  *  - Store page ke category chips (Fruits & Veg / Dairy…) — selected dark
  *  - Recent search chips (clock icon ke saath) — kabhi selected nahi
  */
-export function Chip({ label, selected = false, onPress, icon }: ChipProps) {
+export function Chip({ label, selected = false, onPress, icon, tone = 'dark' }: ChipProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -22,7 +33,11 @@ export function Chip({ label, selected = false, onPress, icon }: ChipProps) {
       accessibilityState={onPress ? { selected } : undefined}
       style={({ pressed }) => [
         styles.base,
-        selected ? styles.selected : styles.unselected,
+        selected
+          ? tone === 'primary'
+            ? styles.selectedPrimary
+            : styles.selectedDark
+          : styles.unselected,
         pressed && onPress && styles.pressed,
       ]}
     >
@@ -44,8 +59,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
-  // Screenshots mein active chip almost-black hai, brand blue nahi
-  selected: { backgroundColor: theme.textPrimary },
+  selectedDark: { backgroundColor: theme.textPrimary },
+  selectedPrimary: { backgroundColor: theme.primary },
   unselected: { backgroundColor: theme.surfaceMuted },
   label: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
   labelSelected: { color: theme.textInverse },

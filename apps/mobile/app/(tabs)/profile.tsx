@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Avatar,
   Button,
   Card,
   ListRow,
-  Screen,
+  contentContainer,
+  fontSize,
+  fontWeight,
   spacing,
   text,
   theme,
@@ -15,35 +17,38 @@ import { api } from '../../src/lib/api';
 import { SignInPrompt } from '../../src/components/SignInPrompt';
 import { useSession } from '../../src/lib/session';
 
-const MENU = [
+const ACCOUNT_MENU = [
   { key: 'addresses', title: 'Saved Addresses' },
   { key: 'qr', title: 'QR Scanner' },
   { key: 'payments', title: 'Payment Methods' },
 ] as const;
 
-const SUPPORT = [
+const SUPPORT_MENU = [
   { key: 'help', title: 'Help & Support' },
   { key: 'terms', title: 'Terms & Privacy' },
 ] as const;
 
-/**
- * Profile (screen [12]).
- *
- * Yeh app ki PEHLI screen hai jo asli backend data dikhati hai — naam, phone
- * aur initials `GET /v1/me` se aate hain. Menu items abhi inert hain kyunki
- * unke endpoints nahi bane.
- */
+/** Screen [26] — My Profile */
 export default function ProfileScreen() {
   const { user, isSignedIn, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
+  if (!isSignedIn) {
+    return (
+      <SignInPrompt
+        insetTop={insets.top}
+        title="Sign in to NearBux"
+        message="Save addresses, track orders and check out faster."
+      />
+    );
+  }
+
   async function handleSignOut() {
     setIsSigningOut(true);
     try {
-      // Server ko batao taaki refresh token revoke ho jaaye. Yeh fail bhi ho
-      // jaaye to `signOut` local tokens clear kar hi dega — user ko fasa
-      // nahi chhodna.
+      // Server ko batao taaki refresh token revoke ho. Yeh fail bhi ho jaaye
+      // to local tokens clear hote hi hain — user ko fasa nahi chhodna.
       await api.auth.logoutAll().catch(() => undefined);
       await signOut();
     } finally {
@@ -63,62 +68,67 @@ export default function ProfileScreen() {
     ]);
   }
 
-  if (!isSignedIn) {
-    return (
-      <SignInPrompt
-        insetTop={insets.top}
-        title="Sign in to NearBux"
-        message="Save addresses, track orders and check out faster."
-      />
-    );
-  }
-
   return (
-    <Screen bottomInset={insets.bottom} style={{ paddingTop: insets.top + spacing.md }}>
-      <Text style={text.screenTitle}>My Profile</Text>
+    <ScrollView
+      style={styles.root}
+      // Log Out screen ke NEECHE baithta hai, cards ke turant baad nahi.
+      // `flexGrow` + spacer se woh chhoti screen par bhi neeche rehta hai
+      // aur bade content par scroll ho jaata hai.
+      contentContainerStyle={[
+        styles.scroll,
+        { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl },
+      ]}
+    >
+      <View style={[contentContainer, styles.content]}>
+        <Text style={styles.title}>My Profile</Text>
 
-      <Card variant="muted" padded={false}>
-        <View style={styles.identity}>
-          <Avatar name={user?.fullName ?? 'NearBux User'} imageUrl={user?.avatarUrl} size={48} />
-          <View style={styles.identityText}>
-            <Text style={text.title} numberOfLines={1}>
-              {user?.fullName ?? 'NearBux User'}
-            </Text>
-            <Text style={text.muted}>{formatPhone(user?.phone)}</Text>
+        <Card variant="muted" padded={false}>
+          <View style={styles.identity}>
+            <Avatar name={user?.fullName ?? 'NearBux User'} imageUrl={user?.avatarUrl} size={52} />
+            <View style={styles.identityText}>
+              <Text style={text.title} numberOfLines={1}>
+                {user?.fullName ?? 'NearBux User'}
+              </Text>
+              <Text style={text.muted}>{formatPhone(user?.phone)}</Text>
+            </View>
+            <Pressable hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit profile">
+              <Text style={text.link}>Edit</Text>
+            </Pressable>
           </View>
-          <Text style={text.link}>Edit</Text>
-        </View>
-      </Card>
+        </Card>
 
-      <Card padded={false}>
-        {MENU.map((item, index) => (
-          <ListRow
-            key={item.key}
-            title={item.title}
-            showChevron
-            isLast={index === MENU.length - 1}
-          />
-        ))}
-      </Card>
+        <Card variant="muted" padded={false}>
+          {ACCOUNT_MENU.map((item, index) => (
+            <ListRow
+              key={item.key}
+              title={item.title}
+              showChevron
+              isLast={index === ACCOUNT_MENU.length - 1}
+            />
+          ))}
+        </Card>
 
-      <Card padded={false}>
-        {SUPPORT.map((item, index) => (
-          <ListRow
-            key={item.key}
-            title={item.title}
-            showChevron
-            isLast={index === SUPPORT.length - 1}
-          />
-        ))}
-      </Card>
+        <Card variant="muted" padded={false}>
+          {SUPPORT_MENU.map((item, index) => (
+            <ListRow
+              key={item.key}
+              title={item.title}
+              showChevron
+              isLast={index === SUPPORT_MENU.length - 1}
+            />
+          ))}
+        </Card>
 
-      <Button
-        label="Log Out"
-        variant="destructive"
-        onPress={confirmSignOut}
-        loading={isSigningOut}
-      />
-    </Screen>
+        <View style={styles.spacer} />
+
+        <Button
+          label="Log Out"
+          variant="destructive"
+          onPress={confirmSignOut}
+          loading={isSigningOut}
+        />
+      </View>
+    </ScrollView>
   );
 }
 
@@ -130,11 +140,11 @@ function formatPhone(phone?: string): string {
 }
 
 const styles = StyleSheet.create({
-  identity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.lg,
-  },
+  root: { flex: 1, backgroundColor: theme.background },
+  scroll: { flexGrow: 1 },
+  content: { flex: 1, paddingHorizontal: spacing.lg, gap: spacing.lg },
+  title: { fontSize: fontSize['2xl'], fontWeight: fontWeight.bold, color: theme.textPrimary },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg },
   identityText: { flex: 1, gap: 2 },
+  spacer: { flex: 1, minHeight: spacing['3xl'] },
 });
