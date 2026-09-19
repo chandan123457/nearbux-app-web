@@ -48,11 +48,31 @@ pnpm test             # unit + integration (local Postgres chahiye)
 
 pnpm dev              # API on http://localhost:3000
 pnpm dev:web          # app browser mein
+pnpm dev:device       # physical phone (Expo Go) — QR scan
 pnpm dev:ios          # iOS simulator (macOS)
-pnpm dev:android      # Android emulator
+pnpm dev:android      # Android emulator (adb chahiye)
 ```
 
 App ko API chahiye — dono terminals chalao.
+
+### Physical device par testing
+
+```bash
+pnpm dev          # terminal 1
+pnpm dev:device   # terminal 2 → QR scan karo Expo Go se
+```
+
+`dev:device` LAN IP detect karta hai aur `REACT_NATIVE_PACKAGER_HOSTNAME`
+plus `EXPO_PUBLIC_API_URL` dono set karta hai.
+
+**Ye zaroori kyun hai:** phone par `localhost` ka matlab PHONE khud hai. Do
+alag cheezein loopback par tooti hain — Metro (JS bundle) aur API. Expo ka
+apna LAN detection kabhi-kabhi `127.0.0.1` par gir jaata hai (VPN, container,
+ya kai network interfaces hone par), aur tab QR code `exp://127.0.0.1` hota
+hai jise phone kabhi load nahi kar sakta.
+
+Koi custom native module nahi hai, isliye **Expo Go kaafi hai** — development
+build banane ki zaroorat nahi.
 
 Seeded login: **+91 98765 43210** (Rahul Sharma)
 
