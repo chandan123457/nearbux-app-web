@@ -64,7 +64,7 @@ export function createOrderRepository(db: Db) {
       return db.order.findFirst({
         where: { id: orderId, userId },
         include: {
-          items: { orderBy: { id: 'asc' } },
+          items: { orderBy: { position: 'asc' } },
           events: { orderBy: { occurredAt: 'asc' } },
           payment: true,
           promotion: { select: { code: true } },
@@ -78,7 +78,7 @@ export function createOrderRepository(db: Db) {
       return db.order.findFirst({
         where: { orderNumber, userId },
         include: {
-          items: { orderBy: { id: 'asc' } },
+          items: { orderBy: { position: 'asc' } },
           events: { orderBy: { occurredAt: 'asc' } },
           payment: true,
           promotion: { select: { code: true } },
@@ -100,9 +100,9 @@ export function createOrderRepository(db: Db) {
           ...(params.statuses ? { status: { in: params.statuses } } : {}),
         },
         include: {
-          items: { select: { nameSnapshot: true, quantity: true } },
+          items: { select: { nameSnapshot: true, quantity: true }, orderBy: { position: 'asc' } },
           review: { select: { id: true } },
-          store: { select: { tagline: true } },
+          store: { select: { slug: true, tagline: true } },
         },
         orderBy: { placedAt: 'desc' },
         take: params.limit + 1,

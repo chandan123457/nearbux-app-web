@@ -612,6 +612,14 @@ model OrderItem {
   productId String?  @db.Uuid
   product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  /// Receipt par line ka order.
+  ///
+  /// UUID primary keys RANDOM sort hote hain, isliye `orderBy: id` har
+  /// query par alag order de sakta hai. Receipt ek financial record hai —
+  /// uski lines har baar ek hi kram mein dikhni chahiye, aur wahi kram jo
+  /// user ne cart mein banaya tha.
+  position      Int     @default(0)
+
   /// SNAPSHOTS — kal product ka naam ya price badle to yeh bill na badle
   nameSnapshot  String  @db.VarChar(160)
   unitSnapshot  String  @db.VarChar(60)
@@ -624,7 +632,7 @@ model OrderItem {
 
   productReview ProductReview?
 
-  @@index([orderId])
+  @@index([orderId, position])
   @@map("order_items")
 }
 

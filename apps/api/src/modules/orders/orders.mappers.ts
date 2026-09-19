@@ -33,7 +33,7 @@ export function toOrderSummary(
   order: OrderRow & {
     items: Array<{ nameSnapshot: string; quantity: number }>;
     review: { id: string } | null;
-    store: { tagline: string | null } | null;
+    store: { slug: string; tagline: string | null } | null;
   },
 ): OrderSummary {
   const hasRated = order.review !== null;
@@ -43,6 +43,7 @@ export function toOrderSummary(
     storeId: order.storeId,
     storeName: order.storeNameSnapshot,
     storeTagline: order.store?.tagline ?? null,
+    storeSlug: order.store?.slug ?? null,
     status: order.status,
     itemCount: order.items.reduce((sum, i) => sum + i.quantity, 0),
     itemPreview: buildItemPreview(order.items.map((i) => i.nameSnapshot)),
@@ -74,7 +75,7 @@ export function toOrderDetail(
     } | null;
     promotion: { code: string } | null;
     review: { id: string } | null;
-    store: { tagline: string | null } | null;
+    store: { slug: string; tagline: string | null } | null;
   },
 ): OrderDetail {
   const summary = toOrderSummary(order);

@@ -225,6 +225,14 @@ export interface OrderSummary {
   storeId: string;
   storeName: string;
   storeTagline: string | null;
+  /**
+   * Store page par jaane ke liye. `storeId` se route nahi ban sakta — woh
+   * screen slug par chalti hai.
+   *
+   * Store delete ho chuka ho to null; receipt phir bhi padhni chahiye,
+   * kyunki naam aur phone order par snapshot hain.
+   */
+  storeSlug: string | null;
   status: OrderStatus;
   itemCount: number;
   /** "3 items · Avocados, Milk, Sourdough" (screen [11]) */

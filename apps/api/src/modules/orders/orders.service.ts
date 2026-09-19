@@ -161,7 +161,10 @@ export function createOrderService(repo: OrderRepository) {
             placedAt: now,
             idempotencyKey: input.idempotencyKey,
             items: {
-              create: cart.items.map((i) => ({
+              // `position` cart ka kram preserve karta hai. Iske bina receipt
+              // UUID order mein render hoti hai, jo effectively random hai.
+              create: cart.items.map((i, index) => ({
+                position: index,
                 productId: i.productId,
                 nameSnapshot: i.product.name,
                 unitSnapshot: i.product.unitLabel,

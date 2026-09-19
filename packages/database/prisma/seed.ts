@@ -467,7 +467,8 @@ async function seedCartAndOrders(ctx: SeedContext) {
       preparingAt: new Date(placedAt.getTime() + 5 * 60_000),
       idempotencyKey: 'seed-order-nb-4032',
       items: {
-        create: lines.map((l) => ({
+        create: lines.map((l, index) => ({
+          position: index,
           productId: pid('freshmart-superstore', l.name),
           nameSnapshot: l.name,
           unitSnapshot: l.unit,
@@ -534,10 +535,10 @@ async function seedCartAndOrders(ctx: SeedContext) {
       idempotencyKey: 'seed-order-nb-4029',
       items: {
         create: [
-          { productId: pid('freshmart-superstore', 'Basmati Rice Premium'), nameSnapshot: 'Basmati Rice Premium (5kg)', unitSnapshot: '5kg bag', unitPriceMinor: 42000, quantity: 1, lineTotalMinor: 42000 },
-          { productId: pid('freshmart-superstore', 'Fresh Whole Milk'), nameSnapshot: 'Fresh Whole Milk (1L)', unitSnapshot: '1 Liter', unitPriceMinor: 13000, quantity: 1, lineTotalMinor: 13000 },
-          { productId: pid('freshmart-superstore', 'Organic Farm Eggs'), nameSnapshot: 'Organic Farm Eggs (Pack of 12)', unitSnapshot: 'Pack of 12', unitPriceMinor: 11000, quantity: 1, lineTotalMinor: 11000 },
-          { productId: pid('freshmart-superstore', 'Artisan Whole Wheat Sourdough'), nameSnapshot: 'Artisan Whole Wheat Sourdough', unitSnapshot: '400g loaf', unitPriceMinor: 8500, quantity: 1, lineTotalMinor: 8500 },
+          { position: 0, productId: pid('freshmart-superstore', 'Basmati Rice Premium'), nameSnapshot: 'Basmati Rice Premium (5kg)', unitSnapshot: '5kg bag', unitPriceMinor: 42000, quantity: 1, lineTotalMinor: 42000 },
+          { position: 1, productId: pid('freshmart-superstore', 'Fresh Whole Milk'), nameSnapshot: 'Fresh Whole Milk (1L)', unitSnapshot: '1 Liter', unitPriceMinor: 13000, quantity: 1, lineTotalMinor: 13000 },
+          { position: 2, productId: pid('freshmart-superstore', 'Organic Farm Eggs'), nameSnapshot: 'Organic Farm Eggs (Pack of 12)', unitSnapshot: 'Pack of 12', unitPriceMinor: 11000, quantity: 1, lineTotalMinor: 11000 },
+          { position: 3, productId: pid('freshmart-superstore', 'Artisan Whole Wheat Sourdough'), nameSnapshot: 'Artisan Whole Wheat Sourdough', unitSnapshot: '400g loaf', unitPriceMinor: 8500, quantity: 1, lineTotalMinor: 8500 },
         ],
       },
       events: {
@@ -645,7 +646,8 @@ async function createSimpleDeliveredOrder(input: SimpleOrderInput) {
       deliveredAt: new Date(t + 38 * 60_000),
       idempotencyKey: `seed-order-${input.orderNumber.toLowerCase()}`,
       items: {
-        create: input.items.map((i) => ({
+        create: input.items.map((i, index) => ({
+          position: index,
           productId: input.pid(input.storeSlug, i.name),
           nameSnapshot: i.name,
           unitSnapshot: i.unit,

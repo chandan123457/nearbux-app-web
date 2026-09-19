@@ -7,7 +7,7 @@ import {
   isInProgress,
   statusesForFilter,
 } from '../order.js';
-import { initials } from '../format.js';
+import { formatDate, formatTime, initials } from '../format.js';
 
 describe('order lifecycle', () => {
   it('sirf forward transitions allow karta hai', () => {
@@ -47,6 +47,30 @@ describe('display helpers', () => {
 
   it('order number format', () => {
     expect(formatOrderNumber(4032)).toBe('NB-4032');
+  });
+
+  /**
+   * Yeh strings teeno platforms par ek jaisi honi chahiye.
+   *
+   * Intl ka month naam ICU version par depend karta hai — kuch platforms
+   * September ko "Sept" dete hain, kuch "Sep". Designs "Sep" dikhati hain,
+   * aur server ka render client se match hona chahiye.
+   */
+  it('date ko chhote month naam se format karta hai, ICU se nahi', () => {
+    expect(formatDate(new Date('2026-09-10T06:00:00Z'))).toBe('10 Sep');
+    expect(formatDate(new Date('2026-01-05T06:00:00Z'))).toBe('05 Jan');
+    expect(formatDate(new Date('2026-12-31T06:00:00Z'))).toBe('31 Dec');
+  });
+
+  it('time ko uppercase AM/PM ke saath IST mein format karta hai', () => {
+    // 08:40 UTC = 14:10 IST
+    expect(formatTime(new Date('2026-09-10T08:40:00Z'))).toBe('2:10 PM');
+    // 06:00 UTC = 11:30 IST
+    expect(formatTime(new Date('2026-09-10T06:00:00Z'))).toBe('11:30 AM');
+    // 18:30 UTC = 00:00 IST agle din — midnight 12 AM hona chahiye, 0 nahi
+    expect(formatTime(new Date('2026-09-10T18:30:00Z'))).toBe('12:00 AM');
+    // 06:30 UTC = 12:00 IST — dopahar 12 PM hona chahiye
+    expect(formatTime(new Date('2026-09-10T06:30:00Z'))).toBe('12:00 PM');
   });
 
   it('initials nikalta hai', () => {
