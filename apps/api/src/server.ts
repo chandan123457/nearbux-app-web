@@ -65,6 +65,30 @@ export async function buildServer({ env, db }: BuildServerOptions): Promise<Fast
     disableRequestLogging: env.NODE_ENV === 'test',
   });
 
+  /**
+   * Empty JSON body ko accept karo.
+   *
+   * Fastify ka default parser `content-type: application/json` ke saath
+   * khaali body par FST_ERR_CTP_EMPTY_JSON_BODY phenkta hai. Woh error
+   * humare envelope se bahar nikalta hai, aur woh un endpoints ko todta hai
+   * jo koi input lete hi nahi (`POST /auth/guest`, `/notifications/read-all`)
+   * — kyunki bahut se HTTP clients aur proxies har POST par content-type
+   * laga dete hain, body ho ya na ho.
+   */
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_request, body, done) => {
+      const raw = typeof body === 'string' ? body.trim() : '';
+      if (raw.length === 0) return done(null, undefined);
+      try {
+        done(null, JSON.parse(raw));
+      } catch {
+        done(new AppError(400, 'INVALID_JSON', 'Request body is not valid JSON'), undefined);
+      }
+    },
+  );
+
   await app.register(prismaPlugin, db ? { db } : {});
   await app.register(authPlugin, { env });
   await app.register(securityPlugin, { env });

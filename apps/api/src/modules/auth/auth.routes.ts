@@ -35,6 +35,26 @@ export default async function authRoutes(app: FastifyInstance, opts: { env: Env 
     },
   );
 
+  /**
+   * Anonymous session banao.
+   *
+   * App boot par call hoti hai jab koi session na ho. Rate limit per-IP hai —
+   * yeh bina auth ke user rows banata hai, isliye ek open endpoint hai jise
+   * abuse kiya ja sakta hai.
+   */
+  app.post(
+    '/auth/guest',
+    { config: { rateLimit: { max: 20, timeWindow: opts.env.RATE_LIMIT_WINDOW } } },
+    async (request, reply) => {
+      const tokens = await service.createGuestSession({
+        ipAddress: request.ip,
+        deviceLabel: request.headers['user-agent'] ?? null,
+      });
+      reply.code(201);
+      return { tokens };
+    },
+  );
+
   app.post(
     '/auth/otp/verify',
     {
@@ -47,8 +67,14 @@ export default async function authRoutes(app: FastifyInstance, opts: { env: Env 
     },
     async (request, reply) => {
       const body = parse(verifyOtpSchema, request.body);
+
+      // Guest session ke saath verify karne par usi account ko upgrade karo,
+      // taaki uska cart aur orders bach jaayein
+      await app.optionalAuth(request, reply);
+
       const result = await service.verifyOtp({
         ...body,
+        guestUserId: request.currentUser?.sub ?? null,
         ipAddress: request.ip,
         deviceLabel: request.headers['user-agent'] ?? null,
       });

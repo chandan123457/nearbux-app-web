@@ -6,7 +6,8 @@ import type { Env } from '../lib/env.js';
 
 export interface AccessTokenPayload {
   sub: string; // user id
-  phone: string;
+  /** Guest par null — token phir bhi valid hai, bas identity anonymous hai */
+  phone: string | null;
 }
 
 declare module 'fastify' {

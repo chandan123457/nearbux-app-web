@@ -50,7 +50,7 @@ export default async function meRoutes(app: FastifyInstance) {
 
 function toProfile(user: {
   id: string;
-  phone: string;
+  phone: string | null;
   email: string | null;
   fullName: string;
   avatarUrl: string | null;
@@ -64,5 +64,6 @@ function toProfile(user: {
     // Avatar fallback server par compute hota hai taaki teeno platforms
     // par exactly same dikhe
     initials: initials(user.fullName),
+    isGuest: user.phone === null,
   };
 }

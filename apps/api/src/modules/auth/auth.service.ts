@@ -12,7 +12,7 @@ export interface AuthTokens {
 }
 
 export interface SignAccessToken {
-  (payload: { sub: string; phone: string }): string;
+  (payload: { sub: string; phone: string | null }): string;
 }
 
 interface Deps {
@@ -33,7 +33,7 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
   const newCode = makeCode ?? generateOtpCode;
 
   async function issueTokens(
-    user: { id: string; phone: string },
+    user: { id: string; phone: string | null },
     context: { deviceLabel?: string | null; ipAddress?: string | null },
   ): Promise<AuthTokens> {
     const refreshToken = generateRefreshToken();
@@ -55,6 +55,20 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
   }
 
   return {
+    /**
+     * Anonymous session — device ko pehli launch par milti hai.
+     *
+     * Iske bina cart, orders aur profile screens sign-in wall dikhati hain,
+     * aur user ko browse karne se pehle hi account banana padta hai.
+     */
+    async createGuestSession(context: {
+      deviceLabel?: string | null;
+      ipAddress?: string | null;
+    }): Promise<AuthTokens> {
+      const guest = await repo.createGuest();
+      return issueTokens({ id: guest.id, phone: null }, context);
+    },
+
     /**
      * OTP request.
      *
@@ -111,6 +125,8 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
       platform?: string;
       ipAddress?: string | null;
       deviceLabel?: string | null;
+      /** Guest session jo verify kar rahi hai — usi account ko upgrade karo */
+      guestUserId?: string | null;
     }): Promise<{ tokens: AuthTokens; isNewUser: boolean }> {
       const challenge = await repo.findActiveChallenge(input.phone);
 
@@ -134,16 +150,35 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
 
       await repo.consumeChallenge(challenge.id);
 
-      let user = await repo.findUserByPhone(input.phone);
-      const isNewUser = user === null;
+      const existing = await repo.findUserByPhone(input.phone);
+      const guest = input.guestUserId ? await repo.findUserById(input.guestUserId) : null;
+      const isGuest = guest !== null && guest.phone === null;
 
-      if (!user) {
+      let user;
+      let isNewUser: boolean;
+
+      if (existing) {
+        // Number pehle se kisi account ka hai. Us account mein sign in karao.
+        //
+        // Guest ka data us account mein MERGE nahi karte: do carts, do sets
+        // of orders aur do address books ko jodna silently galat cheez
+        // pick kar sakta hai, aur galti chhipi rehti hai. Verified account
+        // hi source of truth hai.
+        user = existing.phoneVerified ? existing : await repo.markPhoneVerified(existing.id);
+        isNewUser = false;
+      } else if (isGuest) {
+        // Guest ko usi row par upgrade karo — cart aur orders bach jaate hain
+        user = await repo.upgradeGuest(guest.id, {
+          phone: input.phone,
+          ...(input.fullName?.trim() ? { fullName: input.fullName.trim() } : {}),
+        });
+        isNewUser = true;
+      } else {
         user = await repo.createUser({
           phone: input.phone,
           fullName: input.fullName?.trim() || 'NearBux User',
         });
-      } else if (!user.phoneVerified) {
-        user = await repo.markPhoneVerified(user.id);
+        isNewUser = true;
       }
 
       if (input.deviceToken && input.platform) {

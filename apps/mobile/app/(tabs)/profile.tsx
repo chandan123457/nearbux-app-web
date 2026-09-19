@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -14,7 +15,6 @@ import {
   theme,
 } from '@nearbux/ui';
 import { api } from '../../src/lib/api';
-import { SignInPrompt } from '../../src/components/SignInPrompt';
 import { useSession } from '../../src/lib/session';
 
 const ACCOUNT_MENU = [
@@ -30,19 +30,10 @@ const SUPPORT_MENU = [
 
 /** Screen [26] — My Profile */
 export default function ProfileScreen() {
-  const { user, isSignedIn, signOut } = useSession();
+  const router = useRouter();
+  const { user, isVerified, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const [isSigningOut, setIsSigningOut] = useState(false);
-
-  if (!isSignedIn) {
-    return (
-      <SignInPrompt
-        insetTop={insets.top}
-        title="Sign in to NearBux"
-        message="Save addresses, track orders and check out faster."
-      />
-    );
-  }
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -82,17 +73,33 @@ export default function ProfileScreen() {
       <View style={[contentContainer, styles.content]}>
         <Text style={styles.title}>My Profile</Text>
 
+        {/*
+          Guest ko yahan ek WALL nahi, ek invitation milta hai. Woh already
+          browse kar sakta hai, cart bana sakta hai aur order de sakta hai —
+          phone sirf tab chahiye jab account devices ke beech chalna ho.
+        */}
         <Card variant="muted" padded={false}>
           <View style={styles.identity}>
-            <Avatar name={user?.fullName ?? 'NearBux User'} imageUrl={user?.avatarUrl} size={52} />
+            <Avatar
+              name={isVerified ? (user?.fullName ?? 'NearBux User') : 'G'}
+              imageUrl={user?.avatarUrl}
+              size={52}
+            />
             <View style={styles.identityText}>
               <Text style={text.title} numberOfLines={1}>
-                {user?.fullName ?? 'NearBux User'}
+                {isVerified ? user!.fullName : 'Guest'}
               </Text>
-              <Text style={text.muted}>{formatPhone(user?.phone)}</Text>
+              <Text style={text.muted}>
+                {isVerified ? formatPhone(user?.phone) : 'Add your number to save your account'}
+              </Text>
             </View>
-            <Pressable hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit profile">
-              <Text style={text.link}>Edit</Text>
+            <Pressable
+              onPress={() => !isVerified && router.push('/sign-in')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={isVerified ? 'Edit profile' : 'Add phone number'}
+            >
+              <Text style={text.link}>{isVerified ? 'Edit' : 'Add'}</Text>
             </Pressable>
           </View>
         </Card>
@@ -121,19 +128,23 @@ export default function ProfileScreen() {
 
         <View style={styles.spacer} />
 
-        <Button
-          label="Log Out"
-          variant="destructive"
-          onPress={confirmSignOut}
-          loading={isSigningOut}
-        />
+        {/* Guest ke paas sign out karne ko kuch hai hi nahi — woh button
+            confusing hota, aur tap karne par kuch hota bhi nahi dikhta */}
+        {isVerified && (
+          <Button
+            label="Log Out"
+            variant="destructive"
+            onPress={confirmSignOut}
+            loading={isSigningOut}
+          />
+        )}
       </View>
     </ScrollView>
   );
 }
 
-/** "+919876543210" → "+91 98765 43210" */
-function formatPhone(phone?: string): string {
+/** "+919876543210" → "+91 98765 43210". Guest par phone null hota hai. */
+function formatPhone(phone?: string | null): string {
   if (!phone) return '';
   const match = phone.match(/^(\+91)(\d{5})(\d{5})$/);
   return match ? `${match[1]} ${match[2]} ${match[3]}` : phone;

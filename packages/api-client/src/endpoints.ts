@@ -44,6 +44,21 @@ export interface VerifyOtpResult {
 export function createEndpoints(client: ApiClient) {
   return {
     auth: {
+      /**
+       * Anonymous session banati hai aur turant store kar deti hai.
+       *
+       * App boot par call hoti hai jab koi session na ho, taaki cart aur
+       * orders pehli launch se kaam karein — bina sign-in wall ke.
+       */
+      async createGuest(): Promise<AuthTokens> {
+        const result = await client.request<{ tokens: AuthTokens }>('/v1/auth/guest', {
+          method: 'POST',
+          skipAuth: true,
+        });
+        await client.setTokens(result.tokens);
+        return result.tokens;
+      },
+
       requestOtp(input: RequestOtpInput) {
         return client.request<{ expiresInSeconds: number }>('/v1/auth/otp/request', {
           method: 'POST',

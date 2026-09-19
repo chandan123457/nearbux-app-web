@@ -19,7 +19,6 @@ import {
   theme,
 } from '@nearbux/ui';
 import { CenteredSpinner } from '../../src/components/ScreenState';
-import { SignInPrompt } from '../../src/components/SignInPrompt';
 import { useOrders } from '../../src/lib/queries';
 import { useSession } from '../../src/lib/session';
 
@@ -34,18 +33,8 @@ const FILTERS: Array<{ key: OrderFilter; label: string }> = [
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<OrderFilter>('ALL');
-  const { isSignedIn } = useSession();
-  const { data, isLoading } = useOrders(filter, isSignedIn);
-
-  if (!isSignedIn) {
-    return (
-      <SignInPrompt
-        insetTop={insets.top}
-        title="Sign in to see your orders"
-        message="Your order history and live tracking live in your account."
-      />
-    );
-  }
+  const { hasSession } = useSession();
+  const { data, isLoading } = useOrders(filter, hasSession);
 
   return (
     <View style={styles.root}>

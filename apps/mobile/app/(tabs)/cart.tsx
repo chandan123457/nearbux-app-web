@@ -21,7 +21,6 @@ import {
 } from '@nearbux/ui';
 import { GradientButton } from '../../src/components/GradientButton';
 import { CenteredSpinner } from '../../src/components/ScreenState';
-import { SignInPrompt } from '../../src/components/SignInPrompt';
 import { useCartMutations, useCarts } from '../../src/lib/queries';
 import { useSession } from '../../src/lib/session';
 
@@ -29,18 +28,8 @@ import { useSession } from '../../src/lib/session';
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isSignedIn } = useSession();
-  const { data: carts, isLoading } = useCarts(isSignedIn);
-
-  if (!isSignedIn) {
-    return (
-      <SignInPrompt
-        insetTop={insets.top}
-        title="Sign in to see your cart"
-        message="Your cart is saved to your account so it follows you across devices."
-      />
-    );
-  }
+  const { hasSession } = useSession();
+  const { data: carts, isLoading } = useCarts(hasSession);
 
   if (isLoading) return <CenteredSpinner insetTop={insets.top} />;
 

@@ -13,12 +13,21 @@ import type { BillBreakdown, Minor } from './money.js';
 // ─────────────────────────── IDENTITY ───────────────────────────
 export interface UserProfile {
   id: string;
-  phone: string;
+  /** Guest account par null — phone checkout ke waqt maanga jaata hai */
+  phone: string | null;
   email: string | null;
   fullName: string;
   avatarUrl: string | null;
   /** Avatar fallback: "Rahul Sharma" → "RS" (screen [12]) */
   initials: string;
+  /**
+   * Abhi tak koi verified phone nahi.
+   *
+   * Guest browse kar sakta hai, cart bana sakta hai aur uska data device par
+   * bacha rehta hai. Verify karne par WAHI account upgrade hota hai, naya
+   * nahi banta — isliye cart aur orders bach jaate hain.
+   */
+  isGuest: boolean;
 }
 
 export interface Address {

@@ -54,6 +54,28 @@ export function createAuthRepository(db: Db) {
       return db.user.create({ data: { ...data, phoneVerified: true } });
     },
 
+    /** Anonymous account — phone null. Har device ko pehli launch par milta hai. */
+    createGuest() {
+      return db.user.create({ data: { fullName: 'Guest' } });
+    },
+
+    /**
+     * Guest ko verified account mein upgrade karta hai — SAME row.
+     *
+     * Naya user banane se guest ka cart, orders, addresses aur favourites
+     * sab orphan ho jaate. Ek upgrade sab kuch bacha leta hai.
+     */
+    upgradeGuest(userId: string, data: { phone: string; fullName?: string }) {
+      return db.user.update({
+        where: { id: userId },
+        data: {
+          phone: data.phone,
+          phoneVerified: true,
+          ...(data.fullName ? { fullName: data.fullName } : {}),
+        },
+      });
+    },
+
     markPhoneVerified(userId: string) {
       return db.user.update({ where: { id: userId }, data: { phoneVerified: true } });
     },

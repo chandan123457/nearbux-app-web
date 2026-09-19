@@ -90,9 +90,20 @@ enum CancelledBy {
 
 model User {
   id            String    @id @default(uuid()) @db.Uuid
-  /// E.164 format: "+919876543210". Login identity — screen [12] sirf phone
-  /// dikhata hai, isliye auth phone-OTP based hai, password nahi.
-  phone         String    @unique @db.VarChar(16)
+  /// E.164 format: "+919876543210". Login identity — auth phone-OTP based
+  /// hai, password nahi.
+  ///
+  /// NULLABLE, kyunki har device ko pehli launch par ek ANONYMOUS account
+  /// milta hai. Browsing aur cart banane ke liye phone maangna funnel ka
+  /// sabse mehnga step hai; number tab maanga jaata hai jab woh sach mein
+  /// zaroori ho — checkout par.
+  ///
+  /// Guest = phone null. Baad mein OTP verify karne par WAHI row upgrade
+  /// hoti hai, naya user nahi banta — isliye cart aur orders bach jaate hain.
+  ///
+  /// Postgres unique index mein kai NULLs allow karta hai, to yeh constraint
+  /// guests ke liye kaam karta rehta hai.
+  phone         String?   @unique @db.VarChar(16)
   phoneVerified Boolean   @default(false)
   email         String?   @unique @db.VarChar(255)
   fullName      String    @db.VarChar(80)

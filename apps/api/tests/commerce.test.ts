@@ -198,10 +198,37 @@ describe('cart', () => {
   });
 
   it('minimum poora na ho to promo reject karta hai', async () => {
-    // FRESH20 ko Rs 2,500 chahiye
-    const res = await post(`/v1/carts/${storeId}/promotion`, { code: 'FRESH20' });
-    expect(res.statusCode).toBe(409);
-    expect(res.json().code).toBe('PROMO_BELOW_MINIMUM');
+    /*
+     * Yeh test apna promo BANATA hai, seed wala use nahi karta.
+     *
+     * Pehle yeh FRESH20 par depend karta tha, jo ek day-limited offer hai
+     * ("Valid till Today, 11 PM"). Seed ghanton purana ho to woh expire ho
+     * chuka hota hai aur test PROMO_BELOW_MINIMUM ki jagah PROMO_EXPIRED
+     * deta hai — failure seed kab chala tha uspar depend karta tha, code par
+     * nahi. Test ko apna fixture own karna chahiye.
+     */
+    const code = `TESTMIN${Date.now().toString().slice(-6)}`;
+    await prisma.promotion.create({
+      data: {
+        code,
+        title: 'Test minimum',
+        scope: 'STORE',
+        storeId,
+        type: 'FLAT_OFF',
+        value: 10000,
+        minOrderMinor: 10_000_00, // Rs 10,000 — cart isse kabhi upar nahi jaayega
+        startsAt: new Date(Date.now() - 60_000),
+        endsAt: new Date(Date.now() + 3_600_000),
+      },
+    });
+
+    try {
+      const res = await post(`/v1/carts/${storeId}/promotion`, { code });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('PROMO_BELOW_MINIMUM');
+    } finally {
+      await prisma.promotion.deleteMany({ where: { code } });
+    }
   });
 });
 

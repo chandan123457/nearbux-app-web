@@ -5,9 +5,12 @@ import { api, apiClient, setUnauthenticatedHandler } from './api';
 
 interface SessionValue {
   user: UserProfile | null;
-  /** App boot par storage check chal raha hai */
+  /** Pehli session establish ho rahi hai */
   isLoading: boolean;
-  isSignedIn: boolean;
+  /** Koi bhi session hai — guest bhi. API calls iske baad safe hain. */
+  hasSession: boolean;
+  /** Verified phone hai (guest nahi) */
+  isVerified: boolean;
   signIn: (user: UserProfile) => void;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -15,18 +18,57 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
+/**
+ * Session lifecycle.
+ *
+ * Har device ko pehli launch par ek ANONYMOUS account milta hai. Iska matlab
+ * cart, orders aur profile shuru se kaam karte hain — koi sign-in wall nahi.
+ * Phone tab maanga jaata hai jab woh sach mein zaroori ho (checkout), aur
+ * verify karne par wahi account upgrade hota hai, naya nahi banta, isliye
+ * guest ka cart aur orders bach jaate hain.
+ *
+ * Sign out karne par turant ek NAYA guest session banti hai. User kabhi
+ * bina session ke nahi rehta, isliye kisi screen ko "signed out" state
+ * handle karne ki zaroorat hi nahi — aur wahi state har jagah bhoolne ki
+ * sabse aam galti hai.
+ */
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
 
+  /** Session establish karta hai: restore karo, warna guest banao */
+  const establish = useCallback(async (): Promise<UserProfile | null> => {
+    if (await apiClient.isSignedIn()) {
+      try {
+        return await api.me.get();
+      } catch {
+        // Token dead hai (revoked, expired, ya account delete) — neeche naya
+        // guest ban jaayega
+        await apiClient.clearTokens();
+      }
+    }
+
+    try {
+      await api.auth.createGuest();
+      return await api.me.get();
+    } catch {
+      // Offline ya server down. App phir bhi chalti hai — discovery guest
+      // requests ke bina bhi kaam karti hai, aur agli launch par retry hoga.
+      return null;
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     await apiClient.clearTokens();
     setUser(null);
-    // Cache clear karna zaroori hai — warna agla user pichle user ka data
-    // dekh sakta hai jab tak refetch na ho jaaye
+    // Cache clear karna zaroori hai — warna agla user pichle ka data dekh
+    // sakta hai jab tak refetch na ho
     queryClient.clear();
-  }, [queryClient]);
+    // Turant naya guest — user ko wall par nahi chhodna
+    setUser(await establish());
+    void queryClient.invalidateQueries();
+  }, [queryClient, establish]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -37,7 +79,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [signOut]);
 
   useEffect(() => {
-    // Refresh fail hone par (token chori, session expired, account delete)
+    // Refresh fail hone par (token chori, session revoke, account delete)
     // client yeh handler call karta hai
     setUnauthenticatedHandler(() => {
       void signOut();
@@ -48,35 +90,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      // Boot par: agar refresh token hai to profile fetch karke session
-      // restore karo. Access token expire ho chuka hoga — client use
-      // chupchaap refresh kar lega.
-      //
-      // Yeh UI ko BLOCK nahi karta. App home par khulti hai chahe user signed
-      // in ho ya na ho; yeh check background mein chalta hai aur jab profile
-      // aa jaati hai tab UI update ho jaata hai. Guest ke liye splash spinner
-      // dikhana bekaar wait hai — uske liye kuch restore hona hi nahi hai.
-      if (await apiClient.isSignedIn()) {
-        try {
-          const profile = await api.me.get();
-          if (!cancelled) setUser(profile);
-        } catch {
-          if (!cancelled) await apiClient.clearTokens();
-        }
-      }
-      if (!cancelled) setIsLoading(false);
+      const profile = await establish();
+      if (cancelled) return;
+      setUser(profile);
+      setIsLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [establish]);
 
   const value = useMemo<SessionValue>(
     () => ({
       user,
       isLoading,
-      isSignedIn: user !== null,
+      hasSession: user !== null,
+      isVerified: user !== null && !user.isGuest,
       signIn: setUser,
       signOut,
       refreshUser,
