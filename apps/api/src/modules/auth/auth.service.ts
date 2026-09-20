@@ -1,7 +1,8 @@
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { Env } from '../../lib/env.js';
 import { Errors } from '../../lib/errors.js';
-import { generateOtpCode, generateRefreshToken, hashRefreshToken } from '../../lib/tokens.js';
+import type { PhoneVerifier } from '../../lib/firebase.js';
+import { generateRefreshToken, hashRefreshToken } from '../../lib/tokens.js';
 import type { AuthRepository } from './auth.repository.js';
 
 export interface AuthTokens {
@@ -12,29 +13,42 @@ export interface AuthTokens {
 }
 
 export interface SignAccessToken {
-  (payload: { sub: string; phone: string | null }): string;
+  (payload: { sub: string; phone: string }): string;
 }
 
 interface Deps {
   repo: AuthRepository;
   env: Env;
   signAccessToken: SignAccessToken;
-  /** Test mein deterministic code inject karne ke liye */
-  makeCode?: () => string;
-  /** SMS gateway — Phase 2 mein log karta hai, integration baad mein */
-  sendSms?: (phone: string, message: string) => Promise<void>;
+  /** Firebase Phone Auth ka ID token verifier — dekho lib/firebase.ts */
+  phoneVerifier: PhoneVerifier;
 }
 
-/** Ek phone number kitne OTP ek window mein maang sakta hai */
-const OTP_REQUEST_WINDOW_MINUTES = 15;
-const OTP_MAX_REQUESTS_PER_WINDOW = 5;
+interface DeviceContext {
+  ipAddress?: string | null;
+  deviceLabel?: string | null;
+  deviceToken?: string;
+  platform?: string;
+}
 
-export function createAuthService({ repo, env, signAccessToken, makeCode, sendSms }: Deps) {
-  const newCode = makeCode ?? generateOtpCode;
+export function createAuthService({ repo, env, signAccessToken, phoneVerifier }: Deps) {
+  /**
+   * Login ke timing ko constant rakhne ke liye ek dummy hash.
+   *
+   * Bina iske: registered number par server Argon2 chalata hai (~100ms), aur
+   * unregistered number par turant return karta hai (~2ms). Woh farak hi ek
+   * enumeration oracle hai — response body chahe kitna bhi generic ho, ghadi
+   * sach bata deti hai. Isliye user na milne par bhi ek verify chalate hain.
+   */
+  let dummyHash: string | null = null;
+  async function getDummyHash(): Promise<string> {
+    dummyHash ??= await argonHash('nearbux-timing-equalizer');
+    return dummyHash;
+  }
 
   async function issueTokens(
-    user: { id: string; phone: string | null },
-    context: { deviceLabel?: string | null; ipAddress?: string | null },
+    user: { id: string; phone: string },
+    context: DeviceContext,
   ): Promise<AuthTokens> {
     const refreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000);
@@ -47,6 +61,14 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
       ipAddress: context.ipAddress ?? null,
     });
 
+    if (context.deviceToken && context.platform) {
+      await repo.upsertDeviceToken({
+        userId: user.id,
+        token: context.deviceToken,
+        platform: context.platform,
+      });
+    }
+
     return {
       accessToken: signAccessToken({ sub: user.id, phone: user.phone }),
       refreshToken,
@@ -56,145 +78,99 @@ export function createAuthService({ repo, env, signAccessToken, makeCode, sendSm
 
   return {
     /**
-     * Anonymous session — device ko pehli launch par milti hai.
+     * Screen [2] — Create your account.
      *
-     * Iske bina cart, orders aur profile screens sign-in wall dikhati hain,
-     * aur user ko browse karne se pehle hi account banana padta hai.
+     * Order matters: phone PEHLE verify hota hai, user BAAD mein banta hai.
+     * Ulta karne par koi bhi bina OTP ke rows bana sakta hai aur phone number
+     * "reserve" karke asli maalik ko signup se rok sakta hai.
      */
-    async createGuestSession(context: {
-      deviceLabel?: string | null;
-      ipAddress?: string | null;
-    }): Promise<AuthTokens> {
-      const guest = await repo.createGuest();
-      return issueTokens({ id: guest.id, phone: null }, context);
-    },
+    async signup(
+      input: {
+        fullName: string;
+        phone: string;
+        password: string;
+        firebaseIdToken?: string;
+      } & DeviceContext,
+    ): Promise<{ tokens: AuthTokens; isNewUser: boolean }> {
+      const verified = await phoneVerifier.verify(input.firebaseIdToken, input.phone);
 
-    /**
-     * OTP request.
-     *
-     * Response NEVER batata hai ki phone registered hai ya nahi. Warna yeh
-     * endpoint ek user-enumeration oracle ban jaata hai — koi bhi numbers
-     * try karke pata kar sakta hai kaun app par hai.
-     */
-    async requestOtp(input: { phone: string }): Promise<{ expiresInSeconds: number }> {
-      const since = new Date(Date.now() - OTP_REQUEST_WINDOW_MINUTES * 60_000);
-      const recent = await repo.countRecentChallenges(input.phone, since);
-
-      // Per-phone limit, IP rate limit ke UPAR. IP limit attacker ko ek hi
-      // number par baar-baar SMS bhejne se nahi rokti (SMS ke paise lagte hain).
-      if (recent >= OTP_MAX_REQUESTS_PER_WINDOW) {
-        throw Errors.tooManyRequests(
-          'Too many verification codes requested. Please try again in a few minutes.',
+      const existing = await repo.findUserByPhone(verified.phone);
+      if (existing) {
+        // Yeh enumeration leak nahi hai: caller abhi-abhi isi number par OTP
+        // verify kar chuka hai, matlab number uska hi hai.
+        throw Errors.conflict(
+          'PHONE_ALREADY_REGISTERED',
+          'This number is already registered. Please log in instead.',
         );
       }
 
-      // Purane codes marr jaate hain — ek waqt par ek hi valid code
-      await repo.consumeAllChallenges(input.phone);
+      const user = await repo.createUser({
+        phone: verified.phone,
+        fullName: input.fullName.trim(),
+        passwordHash: await argonHash(input.password),
+        firebaseUid: verified.uid,
+      });
 
-      const code = newCode();
-      const codeHash = await argonHash(code);
-      const expiresAt = new Date(Date.now() + env.OTP_TTL_MINUTES * 60_000);
-
-      await repo.createChallenge({ phone: input.phone, codeHash, expiresAt });
-
-      const message = `${code} is your NearBux verification code. Valid for ${env.OTP_TTL_MINUTES} minutes.`;
-      if (sendSms) {
-        await sendSms(input.phone, message);
-      } else if (env.NODE_ENV !== 'production') {
-        // Dev/test mein SMS provider nahi hai — code log karte hain.
-        // Production mein yeh raasta possible hi nahi (env check niche).
-        console.log(`[otp] ${input.phone} → ${code}`);
-      } else {
-        throw Errors.internal('SMS provider is not configured');
-      }
-
-      return { expiresInSeconds: env.OTP_TTL_MINUTES * 60 };
+      const tokens = await issueTokens({ id: user.id, phone: user.phone }, input);
+      return { tokens, isNewUser: true };
     },
 
     /**
-     * OTP verify → login ya signup.
+     * Screen [1] — Welcome back. Password se, OTP ke bina.
      *
-     * Pehli baar login karne wala user apne aap ban jaata hai. Alag signup
-     * endpoint nahi hai — phone number hi identity hai.
+     * Har failure ek hi generic error deti hai. "No account with this number"
+     * aur "wrong password" alag-alag batana kisi ko bhi yeh batane ka zariya
+     * ban jaata hai ki kaun-kaun app par hai.
      */
-    async verifyOtp(input: {
-      phone: string;
-      code: string;
-      fullName?: string;
-      deviceToken?: string;
-      platform?: string;
-      ipAddress?: string | null;
-      deviceLabel?: string | null;
-      /** Guest session jo verify kar rahi hai — usi account ko upgrade karo */
-      guestUserId?: string | null;
-    }): Promise<{ tokens: AuthTokens; isNewUser: boolean }> {
-      const challenge = await repo.findActiveChallenge(input.phone);
+    async login(
+      input: { phone: string; password: string } & DeviceContext,
+    ): Promise<{ tokens: AuthTokens }> {
+      const invalid = () => Errors.unauthorized('Incorrect phone number or password');
 
-      // Sab failures ek hi generic error dete hain. "Code expired" aur
-      // "wrong code" alag-alag batana attacker ko yeh reveal kar deta hai ki
-      // us number ke liye valid challenge exist karta hai.
-      const invalid = () => Errors.badRequest('Invalid or expired verification code');
+      const user = await repo.findUserByPhone(input.phone);
 
-      if (!challenge) throw invalid();
-
-      if (challenge.attempts >= env.OTP_MAX_ATTEMPTS) {
-        await repo.consumeChallenge(challenge.id);
+      if (!user?.passwordHash) {
+        await argonVerify(await getDummyHash(), input.password).catch(() => false);
         throw invalid();
       }
 
-      const matches = await argonVerify(challenge.codeHash, input.code).catch(() => false);
-      if (!matches) {
-        await repo.incrementChallengeAttempts(challenge.id);
-        throw invalid();
+      const matches = await argonVerify(user.passwordHash, input.password).catch(() => false);
+      if (!matches) throw invalid();
+
+      return { tokens: await issueTokens({ id: user.id, phone: user.phone }, input) };
+    },
+
+    /**
+     * Screen [1] → "Forgot Password?"
+     *
+     * Phone ka control hi yahan proof hai — purana password maangne ka koi
+     * matlab nahi, jo bhoola hai uske paas woh hai hi nahi.
+     *
+     * Reset ke baad SAARE purane sessions revoke hote hain. Agar password
+     * isliye badla ja raha hai ki account compromise hai, to attacker ka
+     * pehle se chalta hua session zinda chhodna poore reset ko bekaar kar
+     * deta hai.
+     */
+    async resetPassword(
+      input: { phone: string; password: string; firebaseIdToken?: string } & DeviceContext,
+    ): Promise<{ tokens: AuthTokens }> {
+      const verified = await phoneVerifier.verify(input.firebaseIdToken, input.phone);
+
+      const user = await repo.findUserByPhone(verified.phone);
+      if (!user) {
+        throw Errors.notFound('Account');
       }
 
-      await repo.consumeChallenge(challenge.id);
+      await repo.updatePassword(user.id, await argonHash(input.password));
+      await repo.revokeAllUserSessions(user.id);
+      if (verified.uid) await repo.linkFirebaseUid(user.id, verified.uid);
 
-      const existing = await repo.findUserByPhone(input.phone);
-      const guest = input.guestUserId ? await repo.findUserById(input.guestUserId) : null;
-      const isGuest = guest !== null && guest.phone === null;
+      return { tokens: await issueTokens({ id: user.id, phone: user.phone }, input) };
+    },
 
-      let user;
-      let isNewUser: boolean;
-
-      if (existing) {
-        // Number pehle se kisi account ka hai. Us account mein sign in karao.
-        //
-        // Guest ka data us account mein MERGE nahi karte: do carts, do sets
-        // of orders aur do address books ko jodna silently galat cheez
-        // pick kar sakta hai, aur galti chhipi rehti hai. Verified account
-        // hi source of truth hai.
-        user = existing.phoneVerified ? existing : await repo.markPhoneVerified(existing.id);
-        isNewUser = false;
-      } else if (isGuest) {
-        // Guest ko usi row par upgrade karo — cart aur orders bach jaate hain
-        user = await repo.upgradeGuest(guest.id, {
-          phone: input.phone,
-          ...(input.fullName?.trim() ? { fullName: input.fullName.trim() } : {}),
-        });
-        isNewUser = true;
-      } else {
-        user = await repo.createUser({
-          phone: input.phone,
-          fullName: input.fullName?.trim() || 'NearBux User',
-        });
-        isNewUser = true;
-      }
-
-      if (input.deviceToken && input.platform) {
-        await repo.upsertDeviceToken({
-          userId: user.id,
-          token: input.deviceToken,
-          platform: input.platform,
-        });
-      }
-
-      const tokens = await issueTokens(user, {
-        deviceLabel: input.deviceLabel ?? null,
-        ipAddress: input.ipAddress ?? null,
-      });
-
-      return { tokens, isNewUser };
+    /** Signup form par "already registered" turant dikhane ke liye */
+    async checkPhone(phone: string): Promise<{ exists: boolean }> {
+      return { exists: (await repo.findUserByPhone(phone)) !== null };
     },
 
     /**

@@ -90,24 +90,28 @@ enum CancelledBy {
 
 model User {
   id            String    @id @default(uuid()) @db.Uuid
-  /// E.164 format: "+919876543210". Login identity — auth phone-OTP based
-  /// hai, password nahi.
+  /// E.164 format: "+919876543210". Yahi login identity hai.
   ///
-  /// NULLABLE, kyunki har device ko pehli launch par ek ANONYMOUS account
-  /// milta hai. Browsing aur cart banane ke liye phone maangna funnel ka
-  /// sabse mehnga step hai; number tab maanga jaata hai jab woh sach mein
-  /// zaroori ho — checkout par.
-  ///
-  /// Guest = phone null. Baad mein OTP verify karne par WAHI row upgrade
-  /// hoti hai, naya user nahi banta — isliye cart aur orders bach jaate hain.
-  ///
-  /// Postgres unique index mein kai NULLs allow karta hai, to yeh constraint
-  /// guests ke liye kaam karta rehta hai.
-  phone         String?   @unique @db.VarChar(16)
+  /// NOT NULL: account banane ka ek hi raasta hai — signup screen, jahan
+  /// phone OTP se verify hota hai. Koi anonymous/guest row nahi banti.
+  phone         String    @unique @db.VarChar(16)
   phoneVerified Boolean   @default(false)
   email         String?   @unique @db.VarChar(255)
   fullName      String    @db.VarChar(80)
   avatarUrl     String?
+
+  /// Argon2id hash. NULLABLE isliye ki password reset ke beech mein, aur
+  /// future admin/merchant accounts mein, ek row bina password ke bhi ho
+  /// sakti hai. Plaintext password kahin bhi store NAHI hota.
+  passwordHash  String?   @db.VarChar(255)
+
+  /// Firebase Phone Auth ka UID.
+  ///
+  /// OTP hum khud nahi bhejte — Firebase bhejta hai aur verify karta hai.
+  /// Server ko client se ek signed ID token milta hai, jise firebase-admin
+  /// verify karke usmein se phone number nikaalta hai. Yeh UID us link ko
+  /// store karta hai taaki ek hi Firebase identity do accounts na bana sake.
+  firebaseUid   String?   @unique @db.VarChar(128)
   createdAt     DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
   /// Soft delete: user delete hone par bhi orders zinda rehne chahiye
@@ -174,32 +178,6 @@ model Session {
   @@index([userId, revokedAt])
   @@index([expiresAt])
   @@map("sessions")
-}
-
-/// Phone-OTP login challenge.
-///
-/// User se alag table hai kyunki challenge login se PEHLE bante hain — us
-/// waqt user exist hi nahi karta (pehli baar login = signup).
-///
-/// `codeHash` Argon2id se hash hota hai, plaintext nahi. 6-digit code ki
-/// entropy bahut kam hai (10 lakh possibilities), isliye database leak hone
-/// par fast hash seconds mein crack ho jaata. Argon2 deliberately slow hai.
-///
-/// `attempts` brute force rokta hai: har verify par badhta hai, limit ke baad
-/// challenge dead. Warna 6 digits guess karna trivial hai.
-model OtpChallenge {
-  id          String    @id @default(uuid()) @db.Uuid
-  phone       String    @db.VarChar(16)
-  codeHash    String    @db.VarChar(255)
-  attempts    Int       @default(0)
-  expiresAt   DateTime  @db.Timestamptz(3)
-  consumedAt  DateTime? @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-
-  /// Latest active challenge lookup
-  @@index([phone, createdAt(sort: Desc)])
-  @@index([expiresAt])
-  @@map("otp_challenges")
 }
 
 /// Expo push tokens — order status notifications (screen [13]) ke liye

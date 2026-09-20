@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Cart } from '@nearbux/types';
 import { api } from './api';
-import { DEFAULT_COORDS, type Coords } from './location';
 
 /**
  * Query keys ek jagah.
@@ -11,8 +10,8 @@ import { DEFAULT_COORDS, type Coords } from './location';
  * data dikhati rehti hai bina kisi error ke.
  */
 export const keys = {
-  home: (c: Coords) => ['home', c.latitude, c.longitude] as const,
-  search: (q: string, c: Coords) => ['search', q, c.latitude, c.longitude] as const,
+  home: ['home'] as const,
+  search: (q: string) => ['search', q] as const,
   recentSearches: ['search', 'recent'] as const,
   store: (slug: string) => ['store', slug] as const,
   storeProducts: (storeId: string, categoryId?: string, sort?: string) =>
@@ -26,10 +25,18 @@ export const keys = {
   addresses: ['addresses'] as const,
 };
 
-export function useHomeFeed(coords: Coords = DEFAULT_COORDS) {
+/**
+ * Screen [1] — home feed.
+ *
+ * Coordinates client se nahi jaate: server user ke default address se woh
+ * khud nikaalta hai. Pehle yahan ek hardcoded city centre bheja jaata tha
+ * (asli address aane se pehle), jiski wajah se home feed pehle galat shehar
+ * ke stores dikhata tha.
+ */
+export function useHomeFeed() {
   return useQuery({
-    queryKey: keys.home(coords),
-    queryFn: () => api.discovery.home({ ...coords, radiusKm: 8 }),
+    queryKey: keys.home,
+    queryFn: () => api.discovery.home(),
   });
 }
 
@@ -40,17 +47,17 @@ export function useHomeFeed(coords: Coords = DEFAULT_COORDS) {
  * payload (banners, offers, address, unread count) laana yahan waste hai —
  * screen [16] sirf stores dikhati hai.
  */
-export function useNearbyStores(coords: Coords = DEFAULT_COORDS) {
+export function useNearbyStores() {
   return useQuery({
-    queryKey: ['stores', coords.latitude, coords.longitude],
-    queryFn: () => api.discovery.nearbyStores({ ...coords, radiusKm: 8 }),
+    queryKey: ['stores'],
+    queryFn: () => api.discovery.nearbyStores(),
   });
 }
 
-export function useSearch(query: string, coords: Coords = DEFAULT_COORDS) {
+export function useSearch(query: string) {
   return useQuery({
-    queryKey: keys.search(query, coords),
-    queryFn: () => api.discovery.search({ ...coords, radiusKm: 8, q: query }),
+    queryKey: keys.search(query),
+    queryFn: () => api.discovery.search({ q: query }),
     // Khaali query par search mat karo — har keystroke par request bhejna
     // server aur battery dono kharab karta hai
     enabled: query.trim().length > 0,
@@ -66,10 +73,10 @@ export function useRecentSearches() {
   });
 }
 
-export function useStore(slug: string, coords: Coords = DEFAULT_COORDS) {
+export function useStore(slug: string) {
   return useQuery({
     queryKey: keys.store(slug),
-    queryFn: () => api.discovery.store(slug, coords),
+    queryFn: () => api.discovery.store(slug),
     enabled: slug.length > 0,
   });
 }
@@ -96,22 +103,21 @@ export function useProduct(productId: string) {
 }
 
 /**
- * `enabled` flags zaroori hain, optional nahi.
+ * Yahan koi `enabled` guard nahi hai.
  *
- * Inke bina app boot par guest ke liye teen authenticated requests jaati hain,
- * sab 401 deti hain, aur API client har ek par refresh attempt karta hai.
- * Guest ke liye woh sirf shor hai, aur signed-in user ke liye teen bekaar
- * round trips.
+ * Pehle tha, kyunki app guest sessions par chalti thi aur in authenticated
+ * queries ka boot par 401 lena aam tha. Ab onboarding gate ke baad hi ye
+ * screens mount hoti hain (dekho app/_layout.tsx), isliye jab tak yeh hook
+ * chalta hai tab tak ek valid session pakka hoti hai.
  */
-export function useCarts(enabled = true) {
-  return useQuery({ queryKey: keys.carts, queryFn: () => api.cart.list(), enabled });
+export function useCarts() {
+  return useQuery({ queryKey: keys.carts, queryFn: () => api.cart.list() });
 }
 
-export function useOrders(filter: string, enabled = true) {
+export function useOrders(filter: string) {
   return useQuery({
     queryKey: keys.orders(filter),
     queryFn: () => api.orders.list({ filter: filter as 'ALL' }),
-    enabled,
   });
 }
 

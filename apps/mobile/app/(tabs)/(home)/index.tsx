@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +20,6 @@ import {
   theme,
 } from '@nearbux/ui';
 import { CenteredSpinner } from '../../../src/components/ScreenState';
-import { coordsFrom } from '../../../src/lib/location';
 import { useFavoriteMutations, useHomeFeed } from '../../../src/lib/queries';
 
 /** Screen [1] — Home */
@@ -30,8 +28,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { data, isLoading, isError, refetch } = useHomeFeed();
   const { toggleStore } = useFavoriteMutations();
-
-  const coords = useMemo(() => coordsFrom(data?.deliverTo), [data?.deliverTo]);
 
   if (isLoading) return <CenteredSpinner insetTop={insets.top} />;
 
@@ -52,10 +48,21 @@ export default function HomeScreen() {
     <ScrollView style={styles.root} contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}>
       <View style={[contentContainer, styles.content, { paddingTop: insets.top + spacing.md }]}>
         <View style={styles.topRow}>
+          {/*
+            "Deliver to" par woh address dikhta hai jo user ne onboarding
+            mein diya tha — label upar, poori line neeche. Sirf label
+            ("Home") dikhana kaafi nahi hai: jinke do address hain unke liye
+            woh dono ek jaise dikhte hain, aur yahi woh jagah hai jahan user
+            check karta hai ki order kahan ja raha hai.
+          */}
           <Pressable
             style={styles.addressBlock}
             accessibilityRole="button"
-            accessibilityLabel="Change delivery address"
+            accessibilityLabel={
+              data.deliverTo
+                ? `Delivering to ${data.deliverTo.formatted}. Change delivery address`
+                : 'Add delivery address'
+            }
           >
             <Text style={text.overline}>Deliver to</Text>
             <View style={styles.addressRow}>
@@ -64,6 +71,11 @@ export default function HomeScreen() {
               </Text>
               <ChevronDown size={16} color={theme.textPrimary} />
             </View>
+            {data.deliverTo && (
+              <Text style={styles.addressLine} numberOfLines={1}>
+                {data.deliverTo.formatted}
+              </Text>
+            )}
           </Pressable>
 
           <Pressable
@@ -179,6 +191,7 @@ const styles = StyleSheet.create({
   addressBlock: { flex: 1, gap: 2 },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   addressText: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: theme.textPrimary },
+  addressLine: { fontSize: fontSize.sm, color: theme.textSecondary, marginTop: 1 },
   bell: {
     width: 38,
     height: 38,

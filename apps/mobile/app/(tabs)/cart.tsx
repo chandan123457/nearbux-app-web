@@ -22,14 +22,12 @@ import {
 import { GradientButton } from '../../src/components/GradientButton';
 import { CenteredSpinner } from '../../src/components/ScreenState';
 import { useCartMutations, useCarts } from '../../src/lib/queries';
-import { useSession } from '../../src/lib/session';
 
 /** Screen [21] — My Cart */
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { hasSession } = useSession();
-  const { data: carts, isLoading } = useCarts(hasSession);
+  const { data: carts, isLoading } = useCarts();
 
   if (isLoading) return <CenteredSpinner insetTop={insets.top} />;
 

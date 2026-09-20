@@ -6,8 +6,8 @@ import type { Env } from '../lib/env.js';
 
 export interface AccessTokenPayload {
   sub: string; // user id
-  /** Guest par null — token phir bhi valid hai, bas identity anonymous hai */
-  phone: string | null;
+  /** E.164. Har account ke paas verified phone hota hai — signup ki shart hai. */
+  phone: string;
 }
 
 declare module 'fastify' {
@@ -15,11 +15,14 @@ declare module 'fastify' {
     /** preHandler: route ko sirf authenticated users ke liye band karta hai */
     requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     /**
-     * preHandler: token ho to use karo, na ho to guest ke roop mein aage badho.
+     * preHandler: token ho to use karo, na ho to bina personalisation ke aage
+     * badho.
      *
-     * Discovery isi ke peeche hai. Browsing ke liye account zaroori karna
-     * sabse mehnga funnel step hai — user pehle dekhna chahta hai ki uske
-     * paas kya available hai. Login checkout par maanga jaata hai.
+     * Discovery routes isi par hain. App ab poori tarah sign-in ke peeche hai,
+     * isliye practice mein har request par token hota hai — lekin in routes ko
+     * 401 dena galat hoga: ek expire hua access token discovery ko todna nahi
+     * chahiye, aur yeh wahi endpoints hain jo aage chal kar public web pages
+     * (SEO) serve kar sakte hain.
      *
      * Token hone par personalisation milta hai (favourites, cart quantities);
      * na hone par wahi data bina personalisation ke.
@@ -64,8 +67,9 @@ export default fp(
     });
 
     app.decorate('optionalAuth', async function (request: FastifyRequest) {
-      // Expired ya galat token guest ki tarah treat hota hai, error ki tarah
-      // nahi — browsing ko kabhi block nahi karna chahiye.
+      // Expired ya galat token ko error ki tarah nahi, "koi personalisation
+      // nahi" ki tarah treat karte hain — browsing kabhi block nahi honi
+      // chahiye. Client waise bhi 401 par refresh karke retry karta hai.
       try {
         await request.jwtVerify();
         request.currentUser = request.user;

@@ -2,10 +2,22 @@ import { z } from 'zod';
 import { cursorPaginationSchema, latitudeSchema, longitudeSchema, uuidSchema } from './primitives.js';
 import { COMMERCE } from '@nearbux/core';
 
-/** Screen [1] — home feed hamesha coordinates chahta hai */
+/**
+ * Screens [1][4] — discovery queries.
+ *
+ * Coordinates OPTIONAL hain, aur yeh jaan-boojh kar hai. Chhod dene par
+ * server user ke DEFAULT ADDRESS ke coordinates use karta hai — jo waise bhi
+ * sahi jawab hai, kyunki user ne onboarding mein wahi address diya tha.
+ *
+ * Pehle client har call par coordinates bhejta tha, aur uske paas asli
+ * address aane se pehle ek hardcoded city centre hota tha. Nateeja yeh ki
+ * home feed pehle galat shehar ke stores dikhata tha aur phir sahi wale —
+ * ya address badalne par bhi purane hi dikhate rehte the. Ab "kahan deliver
+ * karna hai" ka ek hi jawab hai, aur woh database mein hai.
+ */
 export const nearbyQuerySchema = z.object({
-  latitude: z.coerce.number().pipe(latitudeSchema),
-  longitude: z.coerce.number().pipe(longitudeSchema),
+  latitude: z.coerce.number().pipe(latitudeSchema).optional(),
+  longitude: z.coerce.number().pipe(longitudeSchema).optional(),
   radiusKm: z.coerce.number().min(0.5).max(25).default(COMMERCE.DEFAULT_SEARCH_RADIUS_KM),
 });
 export type NearbyQuery = z.infer<typeof nearbyQuerySchema>;

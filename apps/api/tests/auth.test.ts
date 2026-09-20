@@ -1,32 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@nearbux/database';
-import { hash as argonHash } from '@node-rs/argon2';
-import { createTestServer, cleanupPhone, TEST_OTP, uniquePhone } from './helpers.js';
+import { verify as argonVerify } from '@node-rs/argon2';
+import { cleanupPhone, createTestServer, signupAccount, TEST_PASSWORD, uniquePhone } from './helpers.js';
 
 let app: FastifyInstance;
 const phones: string[] = [];
 
-/**
- * OTP code hashed store hota hai, isliye test usse padh nahi sakta.
- * Iske bajaye hum ek known code ka challenge seedha insert karte hain —
- * jaise SMS bheja gaya ho.
- */
-async function plantOtp(phone: string, code = TEST_OTP) {
-  await prisma.otpChallenge.updateMany({
-    where: { phone, consumedAt: null },
-    data: { consumedAt: new Date() },
-  });
-  return prisma.otpChallenge.create({
-    data: {
-      phone,
-      codeHash: await argonHash(code),
-      expiresAt: new Date(Date.now() + 5 * 60_000),
-    },
-  });
-}
-
-function newPhone(): string {
+/** Har test ka phone cleanup list mein jaata hai */
+function trackedPhone(): string {
   const phone = uniquePhone();
   phones.push(phone);
   return phone;
@@ -41,322 +23,286 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('POST /v1/auth/otp/request', () => {
-  it('OTP challenge banata hai', async () => {
-    const phone = newPhone();
+describe('POST /v1/auth/signup', () => {
+  it('naya account banata hai aur tokens deta hai (201)', async () => {
+    const phone = trackedPhone();
+
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/auth/otp/request',
-      payload: { phone },
+      url: '/v1/auth/signup',
+      payload: { phone, password: TEST_PASSWORD, fullName: 'Rahul Sharma' },
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ expiresInSeconds: 300 });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ isNewUser: true });
+    expect(res.json().tokens.accessToken).toBeTruthy();
 
-    const challenge = await prisma.otpChallenge.findFirst({ where: { phone } });
-    expect(challenge).not.toBeNull();
+    const user = await prisma.user.findFirstOrThrow({ where: { phone } });
+    expect(user.fullName).toBe('Rahul Sharma');
+    expect(user.phoneVerified).toBe(true);
+  });
 
-    // Code PLAINTEXT store nahi hona chahiye. Argon2id verify karte hain,
-    // aur confirm karte hain ki koi bhi 6-digit code stored value se
-    // literally match nahi karta.
-    expect(challenge!.codeHash.startsWith('$argon2id$')).toBe(true);
-    expect(challenge!.codeHash).not.toMatch(/^\d{6}$/);
-    expect(challenge!.codeHash.length).toBeGreaterThan(50);
+  it('password PLAINTEXT store nahi hota', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    const user = await prisma.user.findFirstOrThrow({ where: { phone } });
+    expect(user.passwordHash).not.toBe(TEST_PASSWORD);
+    expect(user.passwordHash).toMatch(/^\$argon2/);
+    // Hash sach mein usi password ka hai
+    await expect(argonVerify(user.passwordHash!, TEST_PASSWORD)).resolves.toBe(true);
+  });
+
+  it('kamzor password reject karta hai', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: { phone: uniquePhone(), password: 'short', fullName: 'Rahul Sharma' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('BAD_REQUEST');
+  });
+
+  it('bina digit wala password reject karta hai', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: { phone: uniquePhone(), password: 'onlyletters', fullName: 'Rahul Sharma' },
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 
   it('galat phone format reject karta hai', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/auth/otp/request',
-      payload: { phone: '9876543210' }, // +91 missing
+      url: '/v1/auth/signup',
+      payload: { phone: '9876543210', password: TEST_PASSWORD, fullName: 'Rahul Sharma' },
     });
+
     expect(res.statusCode).toBe(400);
-    expect(res.json().code).toBe('BAD_REQUEST');
+    expect(res.json().details?.[0]?.field).toBe('phone');
   });
 
-  it('naya code maangne par purane invalidate ho jaate hain', async () => {
-    const phone = newPhone();
-    await app.inject({ method: 'POST', url: '/v1/auth/otp/request', payload: { phone } });
-    await app.inject({ method: 'POST', url: '/v1/auth/otp/request', payload: { phone } });
+  it('ek hi number par dobara signup reject karta hai', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
 
-    const active = await prisma.otpChallenge.count({
-      where: { phone, consumedAt: null },
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: { phone, password: TEST_PASSWORD, fullName: 'Someone Else' },
     });
-    expect(active).toBe(1); // ek waqt par sirf ek valid code
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('PHONE_ALREADY_REGISTERED');
+  });
+
+  it('naam signup se aata hai, kisi default se nahi', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone, fullName: 'Priya Nair' });
+
+    const user = await prisma.user.findFirstOrThrow({ where: { phone } });
+    expect(user.fullName).toBe('Priya Nair');
   });
 });
 
-/**
- * Guest accounts.
- *
- * Har device ko pehli launch par anonymous account milta hai, taaki cart aur
- * orders bina sign-in wall ke kaam karein. Baad mein verify karne par WAHI
- * account upgrade hona chahiye — naya banane par guest ka cart orphan ho
- * jaata hai, aur user ko lagta hai uska saman gayab ho gaya.
- */
-describe('POST /v1/auth/guest', () => {
-  it('content-type ke saath khaali body bhi accept karta hai', async () => {
-    // Bahut se HTTP clients aur proxies har POST par content-type lagate
-    // hain, body ho ya na ho. Fastify ka default parser us par error deta hai.
+describe('POST /v1/auth/login', () => {
+  it('sahi password par tokens deta hai', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/auth/guest',
-      headers: { 'content-type': 'application/json' },
-      payload: '',
+      url: '/v1/auth/login',
+      payload: { phone, password: TEST_PASSWORD },
     });
-    expect(res.statusCode).toBe(201);
 
-    const id = (
-      await app.inject({
-        method: 'GET',
-        url: '/v1/me',
-        headers: { authorization: `Bearer ${res.json().tokens.accessToken}` },
-      })
-    ).json().id;
-    await prisma.session.deleteMany({ where: { userId: id } });
-    await prisma.user.delete({ where: { id } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().tokens.refreshToken).toBeTruthy();
   });
 
+  it('galat password reject karta hai', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone, password: 'wrongpassword1' },
+    });
+
+    expect(res.statusCode).toBe(401);
+  });
+
+  /**
+   * Enumeration test.
+   *
+   * Unknown number aur galat password — dono ka jawab BILKUL ek jaisa hona
+   * chahiye. Farak hone par yeh endpoint bata deta hai ki kaun app par hai.
+   */
+  it('unknown number aur galat password ek hi jawab dete hain', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    const wrongPassword = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone, password: 'wrongpassword1' },
+    });
+    const unknownNumber = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone: uniquePhone(), password: TEST_PASSWORD },
+    });
+
+    expect(unknownNumber.statusCode).toBe(wrongPassword.statusCode);
+    expect(unknownNumber.json()).toEqual(wrongPassword.json());
+  });
+
+  it('har login ek NAYI session banati hai', async () => {
+    const phone = trackedPhone();
+    const account = await signupAccount(app, { phone });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone, password: TEST_PASSWORD },
+    });
+
+    const sessions = await prisma.session.count({
+      where: { userId: account.userId, revokedAt: null },
+    });
+    expect(sessions).toBe(2);
+  });
+});
+
+describe('POST /v1/auth/check-phone', () => {
+  it('registered number ke liye true deta hai', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/check-phone',
+      payload: { phone },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ exists: true });
+  });
+
+  it('unknown number ke liye false deta hai', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/check-phone',
+      payload: { phone: uniquePhone() },
+    });
+
+    expect(res.json()).toEqual({ exists: false });
+  });
+});
+
+describe('POST /v1/auth/forgot-password', () => {
+  it('password reset karta hai aur naye tokens deta hai', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/forgot-password',
+      payload: { phone, password: 'brandnew456' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().tokens.accessToken).toBeTruthy();
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone, password: 'brandnew456' },
+    });
+    expect(login.statusCode).toBe(200);
+  });
+
+  it('purana password reset ke baad kaam nahi karta', async () => {
+    const phone = trackedPhone();
+    await signupAccount(app, { phone });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/forgot-password',
+      payload: { phone, password: 'brandnew456' },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { phone, password: TEST_PASSWORD },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  /**
+   * Yeh reset ka asli point hai.
+   *
+   * Agar password isliye badla ja raha hai ki account compromise hai, to
+   * attacker ka pehle se chalta hua session zinda chhodna poore reset ko
+   * bekaar kar deta hai.
+   */
+  it('reset SAARE purane sessions revoke kar deta hai', async () => {
+    const phone = trackedPhone();
+    const account = await signupAccount(app, { phone });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/forgot-password',
+      payload: { phone, password: 'brandnew456' },
+    });
+
+    const refresh = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      payload: { refreshToken: account.refreshToken },
+    });
+    expect(refresh.statusCode).toBe(401);
+  });
+
+  it('unknown number par 404 deta hai', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/forgot-password',
+      payload: { phone: uniquePhone(), password: 'brandnew456' },
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('request body parsing', () => {
   it('galat JSON par typed error deta hai, Fastify ka raw error nahi', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/auth/otp/request',
+      url: '/v1/auth/login',
       headers: { 'content-type': 'application/json' },
       payload: '{ not json',
     });
+
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('INVALID_JSON');
   });
 
-  it('bina kisi input ke anonymous session deta hai', async () => {
-    const res = await app.inject({ method: 'POST', url: '/v1/auth/guest' });
-
-    expect(res.statusCode).toBe(201);
-    const { tokens } = res.json();
-    expect(tokens.accessToken).toBeTruthy();
-    expect(tokens.refreshToken).toBeTruthy();
-
-    const me = await app.inject({
-      method: 'GET',
-      url: '/v1/me',
-      headers: { authorization: `Bearer ${tokens.accessToken}` },
-    });
-    expect(me.statusCode).toBe(200);
-    expect(me.json()).toMatchObject({ phone: null, isGuest: true, fullName: 'Guest' });
-
-    await prisma.session.deleteMany({ where: { userId: me.json().id } });
-    await prisma.user.delete({ where: { id: me.json().id } });
-  });
-
-  it('guest cart aur orders use kar sakta hai', async () => {
-    const guest = await app.inject({ method: 'POST', url: '/v1/auth/guest' });
-    const token = guest.json().tokens.accessToken;
-    const auth = { authorization: `Bearer ${token}` };
-
-    // Yahi woh screens hain jo pehle sign-in wall dikhati thin
-    expect((await app.inject({ method: 'GET', url: '/v1/carts', headers: auth })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/v1/orders', headers: auth })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/v1/addresses', headers: auth })).statusCode).toBe(200);
-
-    const id = (await app.inject({ method: 'GET', url: '/v1/me', headers: auth })).json().id;
-    await prisma.session.deleteMany({ where: { userId: id } });
-    await prisma.user.delete({ where: { id } });
-  });
-
-  it('verify karne par WAHI account upgrade hota hai, naya nahi banta', async () => {
-    const phone = newPhone();
-
-    const guest = await app.inject({ method: 'POST', url: '/v1/auth/guest' });
-    const guestToken = guest.json().tokens.accessToken;
-    const guestId = (
-      await app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${guestToken}` } })
-    ).json().id;
-
-    // Guest ek address banata hai — yeh upgrade ke baad bhi rehna chahiye
-    const address = await app.inject({
-      method: 'POST',
-      url: '/v1/addresses',
-      headers: { authorization: `Bearer ${guestToken}` },
-      payload: {
-        label: 'HOME',
-        line1: '123 MG Road',
-        city: 'Bengaluru',
-        state: 'Karnataka',
-        pincode: '560001',
-        latitude: 12.9716,
-        longitude: 77.5946,
-        isDefault: true,
-      },
-    });
-    expect(address.statusCode).toBe(201);
-
-    await plantOtp(phone);
-    const verified = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      headers: { authorization: `Bearer ${guestToken}` },
-      payload: { phone, code: TEST_OTP, fullName: 'Rahul Sharma' },
-    });
-    expect(verified.statusCode).toBe(201);
-
-    // Wahi user row — naya nahi
-    const upgraded = await prisma.user.findFirstOrThrow({ where: { phone } });
-    expect(upgraded.id).toBe(guestId);
-    expect(upgraded.fullName).toBe('Rahul Sharma');
-    expect(upgraded.phoneVerified).toBe(true);
-
-    // Aur guest ka data bach gaya
-    const addresses = await prisma.address.count({ where: { userId: guestId, deletedAt: null } });
-    expect(addresses).toBe(1);
-  });
-
-  it('number pehle se kisi account ka ho to usi mein sign in karta hai', async () => {
-    const phone = newPhone();
-
-    // Pehle se maujood verified account
-    await plantOtp(phone);
-    const first = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP, fullName: 'Original Owner' },
-    });
-    expect(first.statusCode).toBe(201);
-    const ownerId = (await prisma.user.findFirstOrThrow({ where: { phone } })).id;
-
-    // Ab ek guest usi number se verify karta hai
-    const guest = await app.inject({ method: 'POST', url: '/v1/auth/guest' });
-    const guestToken = guest.json().tokens.accessToken;
-    const guestId = (
-      await app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${guestToken}` } })
-    ).json().id;
-
-    await plantOtp(phone);
-    const second = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      headers: { authorization: `Bearer ${guestToken}` },
-      payload: { phone, code: TEST_OTP },
-    });
-    expect(second.statusCode).toBe(200);
-    expect(second.json().isNewUser).toBe(false);
-
-    // Verified account hi source of truth hai — guest ka data usme MERGE
-    // nahi hota, kyunki do carts jodna silently galat cheez pick kar sakta hai
-    const me = await app.inject({
-      method: 'GET',
-      url: '/v1/me',
-      headers: { authorization: `Bearer ${second.json().tokens.accessToken}` },
-    });
-    expect(me.json().id).toBe(ownerId);
-    expect(me.json().fullName).toBe('Original Owner');
-
-    await prisma.session.deleteMany({ where: { userId: guestId } });
-    await prisma.user.delete({ where: { id: guestId } });
-  });
-});
-
-describe('POST /v1/auth/otp/verify', () => {
-  it('pehli baar verify par user banata hai (201)', async () => {
-    const phone = newPhone();
-    await plantOtp(phone);
-
+  it('content-type ke saath khaali body bhi crash nahi karti', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP },
+      url: '/v1/notifications/read-all',
+      headers: { 'content-type': 'application/json' },
+      payload: '',
     });
 
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(body.isNewUser).toBe(true);
-    expect(body.tokens.accessToken).toBeTruthy();
-    expect(body.tokens.refreshToken).toBeTruthy();
-    expect(body.tokens.expiresInSeconds).toBe(900);
-
-    const user = await prisma.user.findFirst({ where: { phone } });
-    expect(user?.phoneVerified).toBe(true);
-  });
-
-  it('dobara login par wahi user (200), naya nahi', async () => {
-    const phone = newPhone();
-    await plantOtp(phone);
-    await app.inject({ method: 'POST', url: '/v1/auth/otp/verify', payload: { phone, code: TEST_OTP } });
-
-    await plantOtp(phone);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP },
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.json().isNewUser).toBe(false);
-    expect(await prisma.user.count({ where: { phone } })).toBe(1);
-  });
-
-  it('galat code reject karta hai aur attempts badhata hai', async () => {
-    const phone = newPhone();
-    const challenge = await plantOtp(phone);
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: '999999' },
-    });
-
-    expect(res.statusCode).toBe(400);
-    const after = await prisma.otpChallenge.findUnique({ where: { id: challenge.id } });
-    expect(after!.attempts).toBe(1);
-  });
-
-  it('attempt limit ke baad challenge maar deta hai', async () => {
-    const phone = newPhone();
-    await plantOtp(phone);
-
-    // OTP_MAX_ATTEMPTS test mein 3 hai
-    for (let i = 0; i < 3; i++) {
-      await app.inject({
-        method: 'POST',
-        url: '/v1/auth/otp/verify',
-        payload: { phone, code: '000000' },
-      });
-    }
-
-    // Ab SAHI code bhi kaam nahi karna chahiye
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('expired code reject karta hai', async () => {
-    const phone = newPhone();
-    await prisma.otpChallenge.create({
-      data: {
-        phone,
-        codeHash: await argonHash(TEST_OTP),
-        expiresAt: new Date(Date.now() - 1000), // already expired
-      },
-    });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('OTP ek hi baar use ho sakta hai', async () => {
-    const phone = newPhone();
-    await plantOtp(phone);
-
-    const first = await app.inject({ method: 'POST', url: '/v1/auth/otp/verify', payload: { phone, code: TEST_OTP } });
-    expect(first.statusCode).toBe(201);
-
-    const replay = await app.inject({ method: 'POST', url: '/v1/auth/otp/verify', payload: { phone, code: TEST_OTP } });
-    expect(replay.statusCode).toBe(400);
+    // Auth chahiye, lekin body parsing se pehle crash NAHI hona chahiye
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('UNAUTHORIZED');
   });
 });

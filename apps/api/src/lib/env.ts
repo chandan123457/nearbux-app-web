@@ -23,15 +23,32 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
-  OTP_TTL_MINUTES: z.coerce.number().int().min(1).max(30).default(5),
-  OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(5),
+  // ── Firebase Phone Auth (server side) ──
+  //
+  // OTP hum khud nahi bhejte: SMS Firebase bhejta hai aur code bhi wahi
+  // verify karta hai. Server ko client se ek signed ID token milta hai,
+  // jise firebase-admin verify karke usmein se phone number nikaalta hai.
+  //
+  // Yeh teeno OPTIONAL hain taaki local development bina Firebase project ke
+  // bhi chale (dekho lib/firebase.ts ka dev fallback). Production mein inke
+  // bina boot hi nahi hota — neeche guard hai.
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
 
   // Rate limits configurable hain taaki test suite inhe raise kar sake.
   // Warna saare tests ek hi IP se aate hain aur ek doosre ka budget kha lete
   // hain — suite order-dependent aur flaky ho jaati hai.
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().min(1).default(120),
-  RATE_LIMIT_OTP_REQUEST_MAX: z.coerce.number().int().min(1).default(5),
-  RATE_LIMIT_OTP_VERIFY_MAX: z.coerce.number().int().min(1).default(10),
+  // Login brute-force ka surface hai: ek password guess karna free nahi hona
+  // chahiye. Per-IP limit, aur service mein per-phone throttle iske upar.
+  RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(10),
+  // Signup har hit par ek user row aur ek SMS (Firebase ki taraf se) banata
+  // hai — dono ke paise lagte hain.
+  RATE_LIMIT_SIGNUP_MAX: z.coerce.number().int().min(1).default(5),
+  // "Yeh number registered hai?" ek enumeration oracle hai. Sakht limit isse
+  // poori phone-number space scan karne layak nahi rehne deti.
+  RATE_LIMIT_PHONE_CHECK_MAX: z.coerce.number().int().min(1).default(20),
   RATE_LIMIT_WINDOW: z.string().default('15 minutes'),
 
   /** Comma-separated origins, ya "*" development ke liye */
@@ -66,6 +83,16 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
         throw new Error(`${key} is still the development placeholder. Set a real secret.`);
       }
     }
+
+    // Firebase ke bina production mein phone verification hoti hi nahi, aur
+    // dev fallback har phone number ko bina proof ke accept kar leta hai.
+    // Boot par fail hona hi sahi hai — warna signup chupchaap ek open door
+    // ban jaata hai.
+    if (!isFirebaseConfigured(env)) {
+      throw new Error(
+        'FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY are required in production.\nSee .env.example',
+      );
+    }
   }
 
   return env;
@@ -76,4 +103,9 @@ export function corsOrigins(env: Env): string[] | true {
   return env.CORS_ORIGINS.split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+}
+
+/** Teeno service-account values set hain? */
+export function isFirebaseConfigured(env: Env): boolean {
+  return Boolean(env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY);
 }

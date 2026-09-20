@@ -1,7 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { refreshSchema, requestOtpSchema, verifyOtpSchema } from '@nearbux/validation';
+import {
+  checkPhoneSchema,
+  forgotPasswordSchema,
+  loginSchema,
+  refreshSchema,
+  signupSchema,
+} from '@nearbux/validation';
 import { parse } from '../../lib/validate.js';
 import type { Env } from '../../lib/env.js';
+import { createPhoneVerifier } from '../../lib/firebase.js';
 import { createAuthRepository } from './auth.repository.js';
 import { createAuthService } from './auth.service.js';
 
@@ -10,76 +17,97 @@ export default async function authRoutes(app: FastifyInstance, opts: { env: Env 
     repo: createAuthRepository(app.db),
     env: opts.env,
     signAccessToken: (payload) => app.jwt.sign(payload),
+    phoneVerifier: createPhoneVerifier(opts.env, {
+      warn: (msg) => app.log.warn(msg),
+    }),
   });
 
+  function deviceContext(request: { ip: string; headers: Record<string, unknown> }) {
+    return {
+      ipAddress: request.ip,
+      deviceLabel: (request.headers['user-agent'] as string | undefined) ?? null,
+    };
+  }
+
   /**
-   * OTP endpoint global limit se kaafi sakht hai.
+   * Screen [2] — Create your account.
    *
-   * Har request ek SMS bhejta hai, jiske paise lagte hain. Ise open chhodna
-   * matlab attacker ko free SMS bomb dena. Per-phone limit service mein
-   * alag se hai — yeh per-IP layer hai.
+   * Rate limit global se sakht hai: har successful hit ek user row banati hai,
+   * aur har attempt se pehle client ek Firebase SMS trigger karta hai. Dono
+   * ke paise lagte hain aur dono abuse hone layak hain.
    */
   app.post(
-    '/auth/otp/request',
+    '/auth/signup',
     {
       config: {
         rateLimit: {
-          max: opts.env.RATE_LIMIT_OTP_REQUEST_MAX,
+          max: opts.env.RATE_LIMIT_SIGNUP_MAX,
+          timeWindow: opts.env.RATE_LIMIT_WINDOW,
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = parse(signupSchema, request.body);
+      const result = await service.signup({ ...body, ...deviceContext(request) });
+      reply.code(201);
+      return result;
+    },
+  );
+
+  /**
+   * Screen [1] — Log in.
+   *
+   * Password endpoint brute-force ka sabse seedha surface hai: OTP ke ulta,
+   * yahan attacker ke paas guess karne layak kuch hai. Per-IP limit sakht
+   * hai, aur service constant-time reply deti hai.
+   */
+  app.post(
+    '/auth/login',
+    {
+      config: {
+        rateLimit: {
+          max: opts.env.RATE_LIMIT_LOGIN_MAX,
           timeWindow: opts.env.RATE_LIMIT_WINDOW,
         },
       },
     },
     async (request) => {
-      const body = parse(requestOtpSchema, request.body);
-      return service.requestOtp(body);
+      const body = parse(loginSchema, request.body);
+      return service.login({ ...body, ...deviceContext(request) });
     },
   );
 
-  /**
-   * Anonymous session banao.
-   *
-   * App boot par call hoti hai jab koi session na ho. Rate limit per-IP hai —
-   * yeh bina auth ke user rows banata hai, isliye ek open endpoint hai jise
-   * abuse kiya ja sakta hai.
-   */
+  /** Screen [1] → "Forgot Password?" — Firebase OTP se verify hokar reset */
   app.post(
-    '/auth/guest',
-    { config: { rateLimit: { max: 20, timeWindow: opts.env.RATE_LIMIT_WINDOW } } },
-    async (request, reply) => {
-      const tokens = await service.createGuestSession({
-        ipAddress: request.ip,
-        deviceLabel: request.headers['user-agent'] ?? null,
-      });
-      reply.code(201);
-      return { tokens };
-    },
-  );
-
-  app.post(
-    '/auth/otp/verify',
+    '/auth/forgot-password',
     {
       config: {
         rateLimit: {
-          max: opts.env.RATE_LIMIT_OTP_VERIFY_MAX,
+          max: opts.env.RATE_LIMIT_SIGNUP_MAX,
           timeWindow: opts.env.RATE_LIMIT_WINDOW,
         },
       },
     },
-    async (request, reply) => {
-      const body = parse(verifyOtpSchema, request.body);
+    async (request) => {
+      const body = parse(forgotPasswordSchema, request.body);
+      return service.resetPassword({ ...body, ...deviceContext(request) });
+    },
+  );
 
-      // Guest session ke saath verify karne par usi account ko upgrade karo,
-      // taaki uska cart aur orders bach jaayein
-      await app.optionalAuth(request, reply);
-
-      const result = await service.verifyOtp({
-        ...body,
-        guestUserId: request.currentUser?.sub ?? null,
-        ipAddress: request.ip,
-        deviceLabel: request.headers['user-agent'] ?? null,
-      });
-      reply.code(result.isNewUser ? 201 : 200);
-      return result;
+  /** Signup form par "already registered" turant dikhane ke liye */
+  app.post(
+    '/auth/check-phone',
+    {
+      config: {
+        rateLimit: {
+          max: opts.env.RATE_LIMIT_PHONE_CHECK_MAX,
+          timeWindow: opts.env.RATE_LIMIT_WINDOW,
+        },
+      },
+    },
+    async (request) => {
+      const body = parse(checkPhoneSchema, request.body);
+      return service.checkPhone(body.phone);
     },
   );
 

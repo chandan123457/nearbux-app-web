@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@nearbux/database';
-import { hash as argonHash } from '@node-rs/argon2';
-import { createTestServer, cleanupPhone, TEST_OTP, uniquePhone } from './helpers.js';
+import {
+  cleanupPhone,
+  createTestServer,
+  signupAccount,
+  TEST_PASSWORD,
+  uniquePhone,
+} from './helpers.js';
 
 let app: FastifyInstance;
 const phones: string[] = [];
@@ -10,16 +15,7 @@ const phones: string[] = [];
 async function login(): Promise<{ phone: string; accessToken: string; refreshToken: string }> {
   const phone = uniquePhone();
   phones.push(phone);
-  await prisma.otpChallenge.create({
-    data: { phone, codeHash: await argonHash(TEST_OTP), expiresAt: new Date(Date.now() + 300_000) },
-  });
-  const res = await app.inject({
-    method: 'POST',
-    url: '/v1/auth/otp/verify',
-    payload: { phone, code: TEST_OTP, fullName: 'Rahul Sharma' },
-  });
-  const tokens = res.json().tokens;
-  return { phone, ...tokens };
+  return signupAccount(app, { phone });
 }
 
 beforeAll(async () => {
@@ -128,14 +124,11 @@ describe('logout', () => {
     const first = await login();
     const phone = first.phone;
 
-    // Usi user ka doosra device
-    await prisma.otpChallenge.create({
-      data: { phone, codeHash: await argonHash(TEST_OTP), expiresAt: new Date(Date.now() + 300_000) },
-    });
+    // Usi user ka doosra device — dobara login
     const secondRes = await app.inject({
       method: 'POST',
-      url: '/v1/auth/otp/verify',
-      payload: { phone, code: TEST_OTP },
+      url: '/v1/auth/login',
+      payload: { phone, password: TEST_PASSWORD },
     });
     const second = secondRes.json().tokens;
 

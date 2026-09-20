@@ -74,7 +74,7 @@ hai jise phone kabhi load nahi kar sakta.
 Koi custom native module nahi hai, isliye **Expo Go kaafi hai** — development
 build banane ki zaroorat nahi.
 
-Seeded login: **+91 98765 43210** (Rahul Sharma)
+Seeded login: **+91 98765 43210** / **nearbux123** (Rahul Sharma)
 
 ## Workspace
 
@@ -111,8 +111,10 @@ Base path `/v1`. Sab errors ek hi envelope mein:
 |---|---|---|---|
 | GET | `/health` | — | Liveness. DB touch nahi karta. |
 | GET | `/health/ready` | — | Readiness. DB check karta hai. |
-| POST | `/auth/otp/request` | — | 6-digit code bhejta hai (dev mein log) |
-| POST | `/auth/otp/verify` | — | Login ya signup (201 = naya user) |
+| POST | `/auth/signup` | — | Account banata hai (201). Phone Firebase se verified |
+| POST | `/auth/login` | — | Phone + password |
+| POST | `/auth/forgot-password` | — | Firebase OTP ke baad password reset |
+| POST | `/auth/check-phone` | — | Signup form par duplicate number pakadta hai |
 | POST | `/auth/refresh` | — | Token rotate karta hai |
 | POST | `/auth/logout` | — | Ek session revoke |
 | POST | `/auth/logout-all` | ✓ | Sab devices se logout |
@@ -133,6 +135,7 @@ Base path `/v1`. Sab errors ek hi envelope mein:
 | POST | `/orders/:id/cancel` | ✓ | Screen [10] |
 | GET | `/notifications` | ✓ | Screen [13] |
 | GET/POST | `/addresses` | ✓ | Saved addresses |
+| POST | `/onboarding/address` | ✓ | Screen [4] — pehla address, hamesha default |
 | PUT/DELETE | `/favorites/{stores,products}/:id` | ✓ | Heart toggles |
 
 ### Order placement
@@ -156,15 +159,44 @@ nahi hona chahiye.
 
 ### Auth model
 
-- **Phone OTP** — koi password nahi. Pehla login hi signup hai.
+App poori tarah sign-in ke peeche hai. Home tak pahunchne se pehle teen
+cheezein poori honi chahiye:
+
+```
+[1] Log in            ya   [2] Sign up → [3] Verify OTP
+                                              ↓
+                                       [4] Add address → home
+```
+
+- **Signup**: naam + phone + password. Phone **Firebase Phone Auth** se verify
+  hota hai; account tabhi banta hai jab OTP pass ho chuka ho.
+- **Login**: phone + password, OTP ke bina.
+- **Forgot password**: wahi Firebase OTP → naya password. Reset ke baad us
+  user ke **saare sessions revoke** hote hain.
+- **Password**: Argon2id hash. Login par unknown number aur galat password ka
+  jawab bilkul ek jaisa hai — response body aur timing dono — warna endpoint
+  bata deta hai ki kaun app par hai.
 - **Access token**: JWT, 15 min, memory mein rakho.
 - **Refresh token**: opaque random string, database mein SHA-256 hash.
   JWT deliberately nahi — signed JWT expiry se pehle revoke nahi ho sakta.
 - **Rotation + reuse detection**: har refresh purana token maarta hai. Ek
   already-rotated token dobara use hua = chori ka signal → us user ke saare
   sessions revoke.
-- **OTP**: Argon2id se hashed (6 digits ki entropy bahut kam hai), 5 min TTL,
-  attempt limit, ek waqt par ek valid code, per-phone throttle IP limit ke upar.
+
+**OTP hum khud handle nahi karte.** SMS Firebase bhejta hai aur code bhi wahi
+verify karta hai; server ko ek signed ID token milta hai jise `firebase-admin`
+verify karke usmein se phone number NIKAALTA hai. Client ka bheja `phone`
+field sirf ek claim hai — account hamesha token wale number par banta hai.
+
+Firebase config (`.env.example` dekho) na hone par development mein OTP
+**skip** ho jaata hai: koi SMS nahi, koi bhi 6-digit code chalta hai. Production
+mein server us config ke bina boot hi nahi hota.
+
+**Native par asli OTP ke liye ek development build chahiye.**
+`@react-native-firebase/auth` ek custom native module hai, isliye woh Expo Go
+mein nahi chalta — `phone-auth.native.ts` use optionally load karta hai aur na
+milne par dev fallback par gir jaata hai. Web par Firebase JS SDK (invisible
+reCAPTCHA) se asli OTP aaj bhi chalta hai.
 
 ## Design invariants
 
@@ -182,6 +214,10 @@ In rules par poora stack khada hai — inhe todne se pehle soch lena:
    retry par wahi key = koi double charge nahi.
 6. **Invariants DB mein enforce hote hain**, application code mein nahi —
    application checks race karte hain, CHECK constraints nahi.
+7. **Discovery ke coordinates server par resolve hote hain**, client par nahi.
+   Request ke coords → user ka default address → platform fallback. Client se
+   coords bhejne par home feed asli address aane se pehle galat shehar
+   dikhata tha.
 
 ## Database
 
@@ -251,24 +287,36 @@ Expo SDK 57 · React Native 0.86 · React 19.2 · Expo Router.
 
 ```
 app/                   Expo Router: file path = route = URL
-├── _layout.tsx        providers + auth gate (ek jagah, har screen ke liye)
+├── _layout.tsx        providers + onboarding gate (Stack.Protected)
 ├── +html.tsx          web-only HTML shell
-├── (auth)/            sign-in → verify
-└── (app)/             tabs: index · cart · orders · profile
+├── (onboarding)/      login · signup · verify · reset-password · address
+└── (tabs)/            home · cart · orders · profile
 src/lib/
 ├── token-storage.native.ts   Keychain / Android Keystore
 ├── token-storage.web.ts      localStorage
 ├── token-storage.ts          memory (static-render fallback)
+├── phone-auth.web.ts         Firebase JS SDK + invisible reCAPTCHA
+├── phone-auth.native.ts      @react-native-firebase/auth (dev build)
+├── phone-auth.ts             dev fallback — koi SMS nahi
+├── otp-flow.ts               signup/reset state (password URL mein nahi jaata)
+├── geocode.ts                screen [4] ka address → coordinates
 ├── api.ts                    client wiring + LAN IP resolution
-└── session.tsx               session state
+└── session.tsx               session + onboarding stage
 ```
+
+Gate `Stack.Protected` se declarative hai, `router.replace()` wale effects se
+nahi: redirect-effect wale gate mein protected screen pehle mount hoti hai,
+apni queries fire karti hai, phir hat jaati hai — matlab har launch par kuch
+bekaar 401s aur ek flash.
 
 ### Platform-specific code
 
-Sirf **ek** cheez platform ke hisaab se badalti hai: token storage. Metro
-`.native.ts` / `.web.ts` apne aap chunta hai, caller ko pata bhi nahi chalta.
-Verified: web bundle mein `localStorage` hai aur SecureStore nahi; iOS bundle
-mein SecureStore hai.
+Do cheezein platform ke hisaab se badalti hain, aur dono ek hi pattern par:
+**token storage** aur **phone OTP**. Metro `.native.ts` / `.web.ts` apne aap
+chunta hai, caller ko pata bhi nahi chalta.
+
+Dono jagah sirf MECHANISM badalta hai — mushkil logic (refresh rotation,
+signup flow) ek hi baar likha jaata hai aur teeno platforms share karte hain.
 
 Baaki har jagah — screens, components, business logic, API client — ek hi
 file teeno platforms par chalti hai. Screens mein ek bhi `Platform.OS` check

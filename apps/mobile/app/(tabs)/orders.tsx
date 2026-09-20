@@ -20,7 +20,6 @@ import {
 } from '@nearbux/ui';
 import { CenteredSpinner } from '../../src/components/ScreenState';
 import { useOrders } from '../../src/lib/queries';
-import { useSession } from '../../src/lib/session';
 
 const FILTERS: Array<{ key: OrderFilter; label: string }> = [
   { key: 'ALL', label: 'All' },
@@ -33,8 +32,7 @@ const FILTERS: Array<{ key: OrderFilter; label: string }> = [
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<OrderFilter>('ALL');
-  const { hasSession } = useSession();
-  const { data, isLoading } = useOrders(filter, hasSession);
+  const { data, isLoading } = useOrders(filter);
 
   return (
     <View style={styles.root}>

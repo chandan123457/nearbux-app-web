@@ -13,21 +13,23 @@ import type { BillBreakdown, Minor } from './money.js';
 // ─────────────────────────── IDENTITY ───────────────────────────
 export interface UserProfile {
   id: string;
-  /** Guest account par null — phone checkout ke waqt maanga jaata hai */
-  phone: string | null;
+  /** E.164: "+919876543210". Signup ke baad hamesha set rehta hai. */
+  phone: string;
   email: string | null;
   fullName: string;
   avatarUrl: string | null;
   /** Avatar fallback: "Rahul Sharma" → "RS" (screen [12]) */
   initials: string;
   /**
-   * Abhi tak koi verified phone nahi.
+   * Onboarding gate — screen [4] (Add your address).
    *
-   * Guest browse kar sakta hai, cart bana sakta hai aur uska data device par
-   * bacha rehta hai. Verify karne par WAHI account upgrade hota hai, naya
-   * nahi banta — isliye cart aur orders bach jaate hain.
+   * Yeh flag SERVER se aata hai, client state se nahi. Onboarding ko local
+   * state se drive karne par user app beech mein band karke dobara khole to
+   * woh adhoori onboarding ke saath home par pahunch jaata hai, bina kisi
+   * delivery address ke — aur phir har discovery call ke paas coordinates
+   * hi nahi hote.
    */
-  isGuest: boolean;
+  hasAddress: boolean;
 }
 
 export interface Address {

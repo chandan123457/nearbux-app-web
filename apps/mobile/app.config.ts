@@ -38,7 +38,20 @@ const config: ExpoConfig = {
     output: 'static',
   },
 
-  plugins: ['expo-router', 'expo-secure-store'],
+  plugins: [
+    'expo-router',
+    'expo-secure-store',
+    [
+      'expo-location',
+      {
+        // Screen [4] — address screen city/state/pincode aur coordinates isi
+        // se bharta hai. Permission string saaf hona chahiye: App Store
+        // review generic "we need your location" reject karta hai.
+        locationAlwaysAndWhenInUsePermission:
+          'NearBux uses your location to find stores that deliver to your address.',
+      },
+    ],
+  ],
 
   experiments: {
     typedRoutes: true,
@@ -49,6 +62,15 @@ const config: ExpoConfig = {
     // ship hota hai. Sirf public values — kabhi koi secret nahi.
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000',
     variant,
+
+    // Firebase client config — phone OTP ke liye. Yeh values public hain
+    // (Firebase inhe secret maanta hi nahi); service account key server par
+    // rehti hai, yahan kabhi nahi. Missing hone par app dev mode mein chalti
+    // hai: koi SMS nahi, koi bhi 6-digit code chalta hai.
+    firebaseApiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+    firebaseAuthDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    firebaseProjectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+    firebaseAppId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
   },
 };
 

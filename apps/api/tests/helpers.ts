@@ -18,14 +18,13 @@ export function testEnv(overrides: Record<string, string> = {}) {
     LOG_LEVEL: 'silent',
     JWT_ACCESS_SECRET: 'test-access-secret-that-is-long-enough-x',
     JWT_REFRESH_SECRET: 'test-refresh-secret-that-is-long-enough-y',
-    OTP_TTL_MINUTES: '5',
-    OTP_MAX_ATTEMPTS: '3',
     // Saare tests ek hi IP (127.0.0.1) se aate hain. Production limits par
     // suite khud ko rate-limit kar leti. Limiter ka apna test alag hai —
     // rate-limit.test.ts.
     RATE_LIMIT_GLOBAL_MAX: '10000',
-    RATE_LIMIT_OTP_REQUEST_MAX: '10000',
-    RATE_LIMIT_OTP_VERIFY_MAX: '10000',
+    RATE_LIMIT_LOGIN_MAX: '10000',
+    RATE_LIMIT_SIGNUP_MAX: '10000',
+    RATE_LIMIT_PHONE_CHECK_MAX: '10000',
     ...overrides,
   });
 }
@@ -86,13 +85,88 @@ export async function cleanupPhone(phone: string): Promise<void> {
     await prisma.deviceToken.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });
   }
-  await prisma.otpChallenge.deleteMany({ where: { phone } });
 }
 
 /**
- * Bheja gaya OTP database se nikalta hai.
+ * Tests ka default password.
  *
- * Code hashed store hota hai isliye padha nahi ja sakta — isliye test
- * deterministic code inject karta hai. Dekho `withKnownOtp`.
+ * Har test user ek hi password use karta hai — uski koi security ahmiyat
+ * nahi, aur alag-alag rakhne se har test ko woh yaad rakhna padta.
  */
-export const TEST_OTP = '123456';
+export const TEST_PASSWORD = 'nearbux123';
+
+export interface TestAccount {
+  phone: string;
+  password: string;
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+}
+
+/**
+ * Ek naya verified account banata hai — asli signup endpoint se.
+ *
+ * Database mein seedha user insert karna tez hota, lekin tab tests woh
+ * raasta exercise karte hi nahi jo asli users lete hain: validation,
+ * password hashing, session creation, device token. Yahan jo cheez toot
+ * sakti hai, wahi test honi chahiye.
+ *
+ * Tests mein Firebase configured nahi hai, isliye server dev fallback par
+ * chalta hai aur `firebaseIdToken` ke bina phone accept kar leta hai —
+ * dekho lib/firebase.ts.
+ */
+export async function signupAccount(
+  app: FastifyInstance,
+  options: { phone?: string; fullName?: string; password?: string } = {},
+): Promise<TestAccount> {
+  const phone = options.phone ?? uniquePhone();
+  const password = options.password ?? TEST_PASSWORD;
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/auth/signup',
+    payload: { phone, password, fullName: options.fullName ?? 'Rahul Sharma' },
+  });
+
+  if (res.statusCode !== 201) {
+    throw new Error(`signup failed (${res.statusCode}): ${res.body}`);
+  }
+
+  const { tokens } = res.json() as { tokens: { accessToken: string; refreshToken: string } };
+  const user = await prisma.user.findFirstOrThrow({ where: { phone } });
+
+  return { phone, password, userId: user.id, ...tokens };
+}
+
+/**
+ * Ek delivery address deta hai.
+ *
+ * Yeh lagbhag har commerce test ko chahiye: order place karne ke liye
+ * address zaroori hai, aur discovery ab coordinates isi se leti hai.
+ */
+export async function addAddress(
+  app: FastifyInstance,
+  accessToken: string,
+  coords: { latitude: number; longitude: number },
+): Promise<string> {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/addresses',
+    headers: { authorization: `Bearer ${accessToken}` },
+    payload: {
+      label: 'HOME',
+      line1: '123 MG Road',
+      line2: 'Apt 4B',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560001',
+      ...coords,
+      isDefault: true,
+    },
+  });
+
+  if (res.statusCode !== 201) {
+    throw new Error(`address failed (${res.statusCode}): ${res.body}`);
+  }
+  return (res.json() as { id: string }).id;
+}

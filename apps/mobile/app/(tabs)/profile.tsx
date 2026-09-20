@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useRouter } from 'expo-router';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -30,8 +29,7 @@ const SUPPORT_MENU = [
 
 /** Screen [26] — My Profile */
 export default function ProfileScreen() {
-  const router = useRouter();
-  const { user, isVerified, signOut } = useSession();
+  const { user, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
@@ -41,6 +39,8 @@ export default function ProfileScreen() {
       // Server ko batao taaki refresh token revoke ho. Yeh fail bhi ho jaaye
       // to local tokens clear hote hi hain — user ko fasa nahi chhodna.
       await api.auth.logoutAll().catch(() => undefined);
+      // signOut ke baad stage 'unauthenticated' ho jaata hai aur gate khud
+      // login screen par le jaata hai — yahan navigate karne ki zaroorat nahi
       await signOut();
     } finally {
       setIsSigningOut(false);
@@ -74,32 +74,21 @@ export default function ProfileScreen() {
         <Text style={styles.title}>My Profile</Text>
 
         {/*
-          Guest ko yahan ek WALL nahi, ek invitation milta hai. Woh already
-          browse kar sakta hai, cart bana sakta hai aur order de sakta hai —
-          phone sirf tab chahiye jab account devices ke beech chalna ho.
+          Naam aur phone dono SERVER ke profile se aate hain, kisi local
+          signup state se nahi — user doosre device par naam badal sakta hai,
+          aur yeh screen hamesha asli value dikhani chahiye.
         */}
         <Card variant="muted" padded={false}>
           <View style={styles.identity}>
-            <Avatar
-              name={isVerified ? (user?.fullName ?? 'NearBux User') : 'G'}
-              imageUrl={user?.avatarUrl}
-              size={52}
-            />
+            <Avatar name={user?.fullName ?? 'NearBux User'} imageUrl={user?.avatarUrl} size={52} />
             <View style={styles.identityText}>
               <Text style={text.title} numberOfLines={1}>
-                {isVerified ? user!.fullName : 'Guest'}
+                {user?.fullName ?? 'NearBux User'}
               </Text>
-              <Text style={text.muted}>
-                {isVerified ? formatPhone(user?.phone) : 'Add your number to save your account'}
-              </Text>
+              <Text style={text.muted}>{formatPhone(user?.phone)}</Text>
             </View>
-            <Pressable
-              onPress={() => !isVerified && router.push('/sign-in')}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={isVerified ? 'Edit profile' : 'Add phone number'}
-            >
-              <Text style={text.link}>{isVerified ? 'Edit' : 'Add'}</Text>
+            <Pressable hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit profile">
+              <Text style={text.link}>Edit</Text>
             </Pressable>
           </View>
         </Card>
@@ -128,22 +117,18 @@ export default function ProfileScreen() {
 
         <View style={styles.spacer} />
 
-        {/* Guest ke paas sign out karne ko kuch hai hi nahi — woh button
-            confusing hota, aur tap karne par kuch hota bhi nahi dikhta */}
-        {isVerified && (
-          <Button
-            label="Log Out"
-            variant="destructive"
-            onPress={confirmSignOut}
-            loading={isSigningOut}
-          />
-        )}
+        <Button
+          label="Log Out"
+          variant="destructive"
+          onPress={confirmSignOut}
+          loading={isSigningOut}
+        />
       </View>
     </ScrollView>
   );
 }
 
-/** "+919876543210" → "+91 98765 43210". Guest par phone null hota hai. */
+/** "+919876543210" → "+91 98765 43210" */
 function formatPhone(phone?: string | null): string {
   if (!phone) return '';
   const match = phone.match(/^(\+91)(\d{5})(\d{5})$/);

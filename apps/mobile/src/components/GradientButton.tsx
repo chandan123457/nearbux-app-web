@@ -9,6 +9,12 @@ export interface GradientButtonProps {
   loading?: boolean;
   iconLeft?: React.ReactNode;
   iconRight?: React.ReactNode;
+  /**
+   * Onboarding screens ka CTA fully rounded hai, in-app ka rectangular.
+   * Yeh sirf cosmetic nahi hai: onboarding par button hi screen ka akela
+   * action hota hai, aur pill shape use uss role mein saaf alag karta hai.
+   */
+  shape?: 'rounded' | 'pill';
 }
 
 /**
@@ -27,6 +33,7 @@ export function GradientButton({
   loading = false,
   iconLeft,
   iconRight,
+  shape = 'rounded',
 }: GradientButtonProps) {
   const isDisabled = disabled || loading;
 
@@ -36,7 +43,11 @@ export function GradientButton({
       disabled={isDisabled}
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
-      style={({ pressed }) => [styles.pressable, pressed && !isDisabled && styles.pressed]}
+      style={({ pressed }) => [
+        styles.pressable,
+        shape === 'pill' && styles.pill,
+        pressed && !isDisabled && styles.pressed,
+      ]}
     >
       <LinearGradient
         colors={[...theme.primaryGradient]}
@@ -64,6 +75,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
+  pill: { borderRadius: radius.pill },
   pressed: { opacity: 0.9 },
   gradient: { height: 54, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.5 },

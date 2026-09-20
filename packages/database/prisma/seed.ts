@@ -15,6 +15,7 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: path.resolve(import.meta.dirname, '../../../.env'), quiet: true });
 
 import { PrismaPg } from '@prisma/adapter-pg';
+import { hash as argonHash } from '@node-rs/argon2';
 import { computeBill, formatOrderNumber } from '@nearbux/core';
 import { PrismaClient } from '../generated/client/index.js';
 import { BENGALURU, CATEGORIES, STORES } from './seed/data.js';
@@ -43,6 +44,9 @@ const prisma = new PrismaClient({
   }),
   log: ['warn', 'error'],
 });
+
+/** Seeded demo account ka password — sirf local development ke liye */
+const SEED_PASSWORD = 'nearbux123';
 
 /** Neon ka compute suspend ho sakta hai — pehli query usse jagati hai. */
 async function waitForDatabase(attempts = 5): Promise<void> {
@@ -218,10 +222,16 @@ async function main() {
 
   // ── User, addresses, payment method ───────────────────────────────────
   console.log('👤 User, addresses and payment methods…');
+
+  // Demo account ka password. Seed sirf local/dev ke liye hai (production
+  // par refuse karta hai), isliye yeh known hona hi chahiye — warna seeded
+  // user se login hi nahi ho sakta aur poora signup flow har baar dobara
+  // chalana padta.
   const user = await prisma.user.create({
     data: {
       phone: '+919876543210',
       phoneVerified: true,
+      passwordHash: await argonHash(SEED_PASSWORD),
       fullName: 'Rahul Sharma',
       addresses: {
         create: [
@@ -785,7 +795,7 @@ async function summarise() {
   const notifications = await prisma.notification.count();
   const cartItems = await prisma.cartItem.count();
   console.log(`   stores=${stores} products=${products} orders=${orders} notifications=${notifications} cartItems=${cartItems}`);
-  console.log('   login: +919876543210 (Rahul Sharma)');
+  console.log(`   login: +919876543210 / ${SEED_PASSWORD} (Rahul Sharma)`);
 }
 
 main()

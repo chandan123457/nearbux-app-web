@@ -13,9 +13,11 @@ packages:
 #  2. Metro (Expo ka bundler, Phase 4) pnpm ke strict symlinks reliably
 #     resolve nahi karta.
 allowBuilds:
+  '@firebase/util': true
   '@prisma/engines': true
   esbuild: true
   prisma: true
+  protobufjs: true
 
 minimumReleaseAgeExclude:
   - '@expo/metro-runtime@57.0.16'

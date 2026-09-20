@@ -18,17 +18,19 @@ import type {
   AddressInput,
   ApplyPromotionInput,
   CancelOrderInput,
+  ForgotPasswordInput,
+  LoginInput,
   NearbyQuery,
+  OnboardingAddressInput,
   OrderListQuery,
   PlaceOrderInput,
-  RequestOtpInput,
+  SignupInput,
   StoreProductsQuery,
   UpdateProfileInput,
-  VerifyOtpInput,
 } from '@nearbux/validation';
 import type { ApiClient, AuthTokens } from './client.js';
 
-export interface VerifyOtpResult {
+export interface SignupResult {
   tokens: AuthTokens;
   isNewUser: boolean;
 }
@@ -45,37 +47,57 @@ export function createEndpoints(client: ApiClient) {
   return {
     auth: {
       /**
-       * Anonymous session banati hai aur turant store kar deti hai.
+       * Screen [2] — Create your account.
        *
-       * App boot par call hoti hai jab koi session na ho, taaki cart aur
-       * orders pehli launch se kaam karein — bina sign-in wall ke.
+       * `firebaseIdToken` Firebase Phone Auth se aata hai: OTP client par
+       * verify hota hai, aur server us signed token se phone number nikaalta
+       * hai. Tokens turant persist hote hain taaki caller ko yaad na rakhna
+       * pade.
        */
-      async createGuest(): Promise<AuthTokens> {
-        const result = await client.request<{ tokens: AuthTokens }>('/v1/auth/guest', {
-          method: 'POST',
-          skipAuth: true,
-        });
-        await client.setTokens(result.tokens);
-        return result.tokens;
-      },
-
-      requestOtp(input: RequestOtpInput) {
-        return client.request<{ expiresInSeconds: number }>('/v1/auth/otp/request', {
+      async signup(input: SignupInput): Promise<SignupResult> {
+        const result = await client.request<SignupResult>('/v1/auth/signup', {
           method: 'POST',
           body: input,
           skipAuth: true,
         });
-      },
-
-      async verifyOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
-        const result = await client.request<VerifyOtpResult>('/v1/auth/otp/verify', {
-          method: 'POST',
-          body: input,
-          skipAuth: true,
-        });
-        // Tokens turant persist karo — caller ko yaad rakhne ki zaroorat nahi
         await client.setTokens(result.tokens);
         return result;
+      },
+
+      /** Screen [1] — Log in. Password se, OTP ke bina. */
+      async login(input: LoginInput): Promise<{ tokens: AuthTokens }> {
+        const result = await client.request<{ tokens: AuthTokens }>('/v1/auth/login', {
+          method: 'POST',
+          body: input,
+          skipAuth: true,
+        });
+        await client.setTokens(result.tokens);
+        return result;
+      },
+
+      /**
+       * Screen [1] → "Forgot Password?"
+       *
+       * Reset server par saare purane sessions revoke karta hai aur is device
+       * ke liye naye tokens deta hai — user ko dobara login nahi karna padta.
+       */
+      async resetPassword(input: ForgotPasswordInput): Promise<{ tokens: AuthTokens }> {
+        const result = await client.request<{ tokens: AuthTokens }>('/v1/auth/forgot-password', {
+          method: 'POST',
+          body: input,
+          skipAuth: true,
+        });
+        await client.setTokens(result.tokens);
+        return result;
+      },
+
+      /** Signup form par OTP bhejne se PEHLE duplicate number pakadne ke liye */
+      checkPhone(phone: string) {
+        return client.request<{ exists: boolean }>('/v1/auth/check-phone', {
+          method: 'POST',
+          body: { phone },
+          skipAuth: true,
+        });
       },
 
       async logout(refreshToken: string): Promise<void> {
@@ -121,6 +143,10 @@ export function createEndpoints(client: ApiClient) {
       create(input: AddressInput) {
         return client.request<Address>('/v1/addresses', { method: 'POST', body: input });
       },
+      /** Screen [4] — onboarding ka address. Hamesha default banta hai. */
+      createOnboarding(input: OnboardingAddressInput) {
+        return client.request<Address>('/v1/onboarding/address', { method: 'POST', body: input });
+      },
       update(id: string, input: Partial<AddressInput>) {
         return client.request<Address>(`/v1/addresses/${id}`, { method: 'PATCH', body: input });
       },
@@ -130,15 +156,22 @@ export function createEndpoints(client: ApiClient) {
     },
 
     discovery: {
-      /** Screen [1] — ek call mein banners, offers, stores, unread count */
-      home(query: NearbyQuery) {
+      /**
+       * Screen [1] — ek call mein banners, offers, stores, unread count.
+       *
+       * Coordinates bhejna OPTIONAL hai. Chhod dene par server user ke
+       * default address ke coordinates use karta hai — jo lagbhag hamesha
+       * sahi jawab hai, aur client ko koi "abhi address pata nahi" wali
+       * guess nahi karni padti.
+       */
+      home(query: Partial<NearbyQuery> = {}) {
         return client.request<HomeFeed>('/v1/home', { query: { ...query } });
       },
-      nearbyStores(query: NearbyQuery) {
+      nearbyStores(query: Partial<NearbyQuery> = {}) {
         return client.request<StoreSummary[]>('/v1/stores', { query: { ...query } });
       },
       /** Screen [4] */
-      search(query: NearbyQuery & { q: string }) {
+      search(query: Partial<NearbyQuery> & { q: string }) {
         return client.request<SearchResults>('/v1/search', { query: { ...query } });
       },
       recentSearches() {
@@ -147,7 +180,7 @@ export function createEndpoints(client: ApiClient) {
       clearRecentSearches() {
         return client.request<void>('/v1/search/recent', { method: 'DELETE' });
       },
-      /** Screen [3] */
+      /** Screen [3]. Coords chhodne par server default address use karta hai. */
       store(slug: string, coords?: { latitude: number; longitude: number }) {
         return client.request<StoreDetail>(`/v1/stores/${slug}`, {
           query: coords ? { ...coords } : undefined,

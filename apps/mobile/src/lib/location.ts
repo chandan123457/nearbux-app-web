@@ -1,17 +1,18 @@
 /**
- * Delivery coordinates.
+ * Platform ka fallback centre (Bengaluru).
  *
- * Har discovery call ko lat/lng chahiye. User ke saved address se lete hain,
- * uske na hone par Bengaluru centre — taaki naya user pehli baar app kholte
- * hi khaali screen na dekhe. Asli GPS permission flow baad mein.
+ * Yeh sirf tab lagta hai jab device location na de — permission deny, GPS
+ * off, ya web par insecure origin. Us halat mein onboarding rukta nahi;
+ * address fallback coordinates ke saath save hota hai aur screen user ko
+ * saaf batati hai ki stores city centre ke aas-paas ke dikhenge.
+ *
+ * Baaki har jagah coordinates SERVER par resolve hote hain, user ke default
+ * address se — dekho apps/api ka stores.routes.ts. Client se coordinates
+ * bhejne par home feed asli address aane se pehle galat shehar dikhata tha.
  */
 export const DEFAULT_COORDS = { latitude: 12.9716, longitude: 77.5946 };
 
 export interface Coords {
   latitude: number;
   longitude: number;
-}
-
-export function coordsFrom(address: Coords | null | undefined): Coords {
-  return address ? { latitude: address.latitude, longitude: address.longitude } : DEFAULT_COORDS;
 }

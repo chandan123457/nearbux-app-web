@@ -71,7 +71,8 @@ export async function buildServer({ env, db }: BuildServerOptions): Promise<Fast
    * Fastify ka default parser `content-type: application/json` ke saath
    * khaali body par FST_ERR_CTP_EMPTY_JSON_BODY phenkta hai. Woh error
    * humare envelope se bahar nikalta hai, aur woh un endpoints ko todta hai
-   * jo koi input lete hi nahi (`POST /auth/guest`, `/notifications/read-all`)
+   * jo koi input lete hi nahi (`POST /notifications/read-all`,
+   * `/auth/logout-all`)
    * — kyunki bahut se HTTP clients aur proxies har POST par content-type
    * laga dete hain, body ho ya na ho.
    */

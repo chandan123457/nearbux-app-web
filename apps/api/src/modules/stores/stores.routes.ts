@@ -5,8 +5,43 @@ import { parse } from '../../lib/validate.js';
 import { createStoreRepository } from './stores.repository.js';
 import { createStoreService } from './stores.service.js';
 
+/**
+ * Platform ka fallback centre (Bengaluru).
+ *
+ * Yeh sirf tab lagta hai jab na request mein coordinates ho aur na user ka
+ * koi address — practice mein yeh sirf ek unauthenticated caller hota hai.
+ * Khaali feed dene se behtar hai ki kuch dikhe.
+ */
+const FALLBACK_COORDS = { latitude: 12.9716, longitude: 77.5946 };
+
 export default async function storeRoutes(app: FastifyInstance) {
   const service = createStoreService(createStoreRepository(app.db));
+
+  /** User ka default delivery address — "deliver to" aur discovery dono ke liye */
+  function findDefaultAddress(userId: string) {
+    return app.db.address.findFirst({
+      where: { userId, deletedAt: null },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  /**
+   * "Kahan deliver karna hai" ka ek hi jawab.
+   *
+   * Priority: request ke coordinates → user ka default address → platform
+   * fallback. Explicit coordinates isliye sabse upar hain ki aage map par
+   * "search this area" jaisa feature unhi se chalega.
+   */
+  function resolveCoords(
+    query: { latitude?: number; longitude?: number },
+    address: { latitude: number; longitude: number } | null,
+  ): { latitude: number; longitude: number } {
+    if (query.latitude !== undefined && query.longitude !== undefined) {
+      return { latitude: query.latitude, longitude: query.longitude };
+    }
+    if (address) return { latitude: address.latitude, longitude: address.longitude };
+    return FALLBACK_COORDS;
+  }
 
   /**
    * Screen [1] — home feed.
@@ -19,17 +54,15 @@ export default async function storeRoutes(app: FastifyInstance) {
     const query = parse(nearbyQuerySchema, request.query);
     const userId = request.currentUser?.sub ?? null;
 
-    // Guest ke paas na address hai na notifications — woh queries chalao hi
-    // mat. `userId` null ke saath Prisma call karna crash hai, silent empty
-    // result nahi.
-    const [feed, address, unread] = await Promise.all([
-      service.getHomeFeed({ ...query, userId }),
-      userId
-        ? app.db.address.findFirst({
-            where: { userId, deletedAt: null },
-            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-          })
-        : Promise.resolve(null),
+    // Address PEHLE chahiye, kyunki feed ke coordinates usise aate hain.
+    // Ise feed ke saath parallel chalane se ek round trip bachta tha, lekin
+    // tab client ko coordinates bhejne padte — aur wahi purana bug tha jahan
+    // home feed pehle hardcoded city centre ke stores dikhata tha.
+    const address = userId ? await findDefaultAddress(userId) : null;
+    const coords = resolveCoords(query, address);
+
+    const [feed, unread] = await Promise.all([
+      service.getHomeFeed({ ...coords, radiusKm: query.radiusKm, userId }),
       userId ? app.db.notification.count({ where: { userId, readAt: null } }) : Promise.resolve(0),
     ]);
 
@@ -48,7 +81,11 @@ export default async function storeRoutes(app: FastifyInstance) {
             latitude: address.latitude,
             longitude: address.longitude,
             isDefault: address.isDefault,
-            formatted: `${address.line1}${address.line2 ? `, ${address.line2}` : ''}, ${address.city}`,
+            // Khaali hisson ko filter karna zaroori hai: onboarding wala
+            // address bina city ke bhi save ho sakta hai (reverse geocoding
+            // fail ho jaaye to), aur tab template string "MG Road, " jaisa
+            // latakta hua comma deta hai.
+            formatted: [address.line1, address.line2, address.city].filter(Boolean).join(', '),
           }
         : null,
       unreadNotificationCount: unread,
@@ -57,7 +94,9 @@ export default async function storeRoutes(app: FastifyInstance) {
 
   app.get('/stores', { preHandler: app.optionalAuth }, async (request) => {
     const query = parse(nearbyQuerySchema, request.query);
-    return service.getNearbyStores({ ...query, userId: request.currentUser?.sub ?? null });
+    const userId = request.currentUser?.sub ?? null;
+    const coords = resolveCoords(query, userId ? await findDefaultAddress(userId) : null);
+    return service.getNearbyStores({ ...coords, radiusKm: query.radiusKm, userId });
   });
 
   /** Screens [2][4] — search + recent searches persist */
@@ -65,14 +104,15 @@ export default async function storeRoutes(app: FastifyInstance) {
     const query = parse(searchQuerySchema, request.query);
     const userId = request.currentUser?.sub ?? null;
 
+    const coords = resolveCoords(query, userId ? await findDefaultAddress(userId) : null);
+
     const [results, recent] = await Promise.all([
       // Schema field `q` hai (URL mein chhota rehna chahiye), service `query`
       // leti hai — yahin map hota hai
       service.search({
         userId,
         query: query.q,
-        latitude: query.latitude,
-        longitude: query.longitude,
+        ...coords,
         radiusKm: query.radiusKm,
       }),
       userId
@@ -125,11 +165,23 @@ export default async function storeRoutes(app: FastifyInstance) {
     { preHandler: app.optionalAuth },
     async (request) => {
       const { latitude, longitude } = request.query as { latitude?: string; longitude?: string };
+      const userId = request.currentUser?.sub ?? null;
+
+      // Distance yahan bhi user ke address se nikalti hai. Iske bina store
+      // detail "0.0 km" dikhata tha jabki usi store ka card home list par
+      // sahi distance dikha raha hota — ek hi store, do alag jawab.
+      const coords = resolveCoords(
+        {
+          latitude: latitude ? Number(latitude) : undefined,
+          longitude: longitude ? Number(longitude) : undefined,
+        },
+        userId ? await findDefaultAddress(userId) : null,
+      );
+
       return service.getStoreBySlug({
         slug: request.params.slug,
-        userId: request.currentUser?.sub ?? null,
-        latitude: latitude ? Number(latitude) : undefined,
-        longitude: longitude ? Number(longitude) : undefined,
+        userId,
+        ...coords,
       });
     },
   );
