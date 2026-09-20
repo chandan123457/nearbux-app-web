@@ -41,22 +41,32 @@ export function StoreCard({
   onToggleFavorite,
   onPress,
 }: StoreCardProps) {
+  /*
+   * Favourite heart Pressable ke BAHAR hai, uske andar nahi.
+   *
+   * Web par react-native-web ek Pressable ko `accessibilityRole="button"`
+   * ke saath asli <button> element banata hai. Heart bhi ek button hai, to
+   * use card ke andar rakhne se <button> ke andar <button> aa jaata tha —
+   * jo invalid HTML hai, browser DOM ko silently restructure kar deta hai,
+   * aur screen readers ke liye nested controls announce hote hain.
+   *
+   * Isliye dono ek container ke SIBLINGS hain aur heart absolutely position
+   * hota hai. Rating pill aur logo andar hi rehte hain — woh interactive
+   * nahi hain, sirf dikhte hain.
+   */
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, ${isOpen ? 'open now' : 'closed'}, ${distanceLabel}`}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-    >
+    <View style={styles.card}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}, ${isOpen ? 'open now' : 'closed'}, ${distanceLabel}`}
+        style={({ pressed }) => [styles.pressableArea, pressed && styles.pressed]}
+      >
       <View style={styles.cover}>
         <ImagePlaceholder uri={coverUrl} style={styles.coverImage} accessibilityLabel={name} />
 
-        {/* Rating pill aur heart image par float karte hain */}
-        <View style={styles.coverTopRow}>
-          <View style={styles.ratingSlot}>
-            <RatingPill rating={rating} />
-          </View>
-          <FavoriteHeart isFavorite={isFavorite} onToggle={onToggleFavorite} />
+        <View style={styles.ratingSlot}>
+          <RatingPill rating={rating} />
         </View>
 
         {/* Store logo cover ke bottom-left par overlap karta hai */}
@@ -91,7 +101,12 @@ export function StoreCard({
           )}
         </View>
       </View>
-    </Pressable>
+      </Pressable>
+
+      <View style={styles.heartSlot}>
+        <FavoriteHeart isFavorite={isFavorite} onToggle={onToggleFavorite} />
+      </View>
+    </View>
   );
 }
 
@@ -107,24 +122,17 @@ function Meta({ icon, label }: { icon: React.ReactNode; label: string }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    ...cardStyle,
-    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
-  },
+  card: { ...cardStyle, position: 'relative' },
+  pressableArea: Platform.select({
+    web: { cursor: 'pointer' } as object,
+    default: {},
+  }) as object,
   pressed: { opacity: 0.9 },
   cover: { position: 'relative' },
   coverImage: { height: 150, borderRadius: 0 },
-  coverTopRow: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    right: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  ratingSlot: { marginRight: spacing.xs },
+  // Rating pill heart ke liye jagah chhodti hai — heart uske daayein float hota hai
+  ratingSlot: { position: 'absolute', top: spacing.md, right: spacing.md + 42 },
+  heartSlot: { position: 'absolute', top: spacing.md, right: spacing.md },
   logoSlot: { position: 'absolute', left: spacing.md, bottom: spacing.md },
   body: { padding: spacing.lg, gap: spacing.xs },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

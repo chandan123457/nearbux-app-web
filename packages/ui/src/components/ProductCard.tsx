@@ -35,72 +35,84 @@ export function ProductCard({
   onChangeQuantity,
   onPress,
 }: ProductCardProps) {
+  /*
+   * Card ke teen interactive hisse hain — khud card, favourite heart, aur
+   * add/stepper — aur teeno ek dusre ke SIBLINGS hain, nested nahi.
+   *
+   * Web par react-native-web `accessibilityRole="button"` wale Pressable ko
+   * asli <button> banata hai. Ek ko dusre ke andar rakhne se <button> ke
+   * andar <button> banta hai: invalid HTML, browser DOM restructure kar
+   * deta hai, aur screen reader nested controls padhta hai.
+   *
+   * Isse ek UX fayda bhi hua: price aur add button par tap ab product page
+   * nahi kholta, jo wahi behaviour hai jo user expect karta hai.
+   */
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={!onPress}
-      accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={`${name}, ${unitLabel}, ${priceLabel}`}
-      style={({ pressed }) => [styles.card, pressed && onPress && styles.pressed]}
-    >
-      <View style={styles.imageWrap}>
+    <View style={styles.card}>
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        accessibilityRole={onPress ? 'button' : undefined}
+        accessibilityLabel={`${name}, ${unitLabel}, ${priceLabel}`}
+        style={({ pressed }) => [styles.pressableArea, pressed && onPress && styles.pressed]}
+      >
         <ImagePlaceholder uri={imageUrl} style={styles.image} accessibilityLabel={name} />
-        {onToggleFavorite && (
-          <View style={styles.heart}>
-            <FavoriteHeart isFavorite={isFavorite} onToggle={onToggleFavorite} size={17} />
-          </View>
-        )}
-      </View>
 
-      <View style={styles.body}>
-        {storeName && (
-          <Text style={styles.storeName} numberOfLines={1}>
-            {storeName}
-          </Text>
-        )}
-        <Text style={text.title} numberOfLines={1}>
-          {name}
-        </Text>
-        <Text style={text.muted} numberOfLines={1}>
-          {unitLabel}
-        </Text>
-
-        <View style={styles.footer}>
-          <Text style={styles.price}>{priceLabel}</Text>
-
-          {/* Out of stock par na "+" na stepper — sirf disabled label */}
-          {!isAvailable ? (
-            <Text style={styles.unavailable}>Unavailable</Text>
-          ) : cartQuantity > 0 ? (
-            <QuantityStepper quantity={cartQuantity} onChange={onChangeQuantity} />
-          ) : (
-            <Pressable
-              onPress={() => onChangeQuantity(1)}
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${name} to cart`}
-              hitSlop={8}
-              style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
-            >
-              <Plus size={20} color={theme.textInverse} strokeWidth={2.5} />
-            </Pressable>
+        <View style={styles.body}>
+          {storeName && (
+            <Text style={styles.storeName} numberOfLines={1}>
+              {storeName}
+            </Text>
           )}
+          <Text style={text.title} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={text.muted} numberOfLines={1}>
+            {unitLabel}
+          </Text>
         </View>
+      </Pressable>
+
+      <View style={styles.footer}>
+        <Text style={styles.price}>{priceLabel}</Text>
+
+        {/* Out of stock par na "+" na stepper — sirf disabled label */}
+        {!isAvailable ? (
+          <Text style={styles.unavailable}>Unavailable</Text>
+        ) : cartQuantity > 0 ? (
+          <QuantityStepper quantity={cartQuantity} onChange={onChangeQuantity} />
+        ) : (
+          <Pressable
+            onPress={() => onChangeQuantity(1)}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${name} to cart`}
+            hitSlop={8}
+            style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+          >
+            <Plus size={20} color={theme.textInverse} strokeWidth={2.5} />
+          </Pressable>
+        )}
       </View>
-    </Pressable>
+
+      {onToggleFavorite && (
+        <View style={styles.heart}>
+          <FavoriteHeart isFavorite={isFavorite} onToggle={onToggleFavorite} size={17} />
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    ...cardStyle,
-    flex: 1,
-    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
-  },
+  card: { ...cardStyle, flex: 1, position: 'relative' },
+  pressableArea: Platform.select({
+    web: { cursor: 'pointer' } as object,
+    default: {},
+  }) as object,
   pressed: { opacity: 0.9 },
-  imageWrap: { position: 'relative' },
   image: { height: 132, borderRadius: 0 },
   heart: { position: 'absolute', top: spacing.sm, right: spacing.sm },
-  body: { padding: spacing.md, gap: 2 },
+  body: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: 2 },
   storeName: {
     fontSize: fontSize.xs,
     color: theme.textSecondary,
@@ -110,7 +122,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.sm,
     minHeight: 34,
   },
   price: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: theme.textPrimary },
