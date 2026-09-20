@@ -69,3 +69,4 @@ export type Db = PrismaClient;
 
 /** Transaction ke andar milne wala client — services isi type par depend karein */
 export type DbTransaction = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+   
